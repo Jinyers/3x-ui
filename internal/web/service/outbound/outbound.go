@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -25,6 +26,9 @@ import (
 type OutboundService struct{}
 
 func (s *OutboundService) AddTraffic(traffics []*xray.Traffic, clientTraffics []*xray.ClientTraffic) (error, bool) {
+	if config.IsTrafficStatsDisabled() {
+		return nil, false
+	}
 	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
 		return s.addOutboundTraffic(tx, traffics)
 	})

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -25,6 +26,9 @@ import (
 const depletedClientsClause = "reset = 0 and reset_day = 0 and reset_weekday = 0 and ((total > 0 and up + down >= total) or (expiry_time > 0 and expiry_time <= ?))"
 
 func (s *InboundService) AddTraffic(inboundTraffics []*xray.Traffic, clientTraffics []*xray.ClientTraffic) (needRestart bool, clientsDisabled bool, err error) {
+	if config.IsTrafficStatsDisabled() {
+		return false, false, nil
+	}
 	var disabledNodeIDs []int
 	var remotePlans []trafficInboundUpdatePlan
 	var renewed []string
@@ -1141,6 +1145,9 @@ func (s *InboundService) GetClientTrafficTgBot(tgId int64) ([]*xray.ClientTraffi
 // last_online on a non-zero delta, so idle-but-connected clients would
 // otherwise show a stale "last online" while being reported online.
 func (s *InboundService) BumpClientsLastOnline(emails []string) error {
+	if config.IsTrafficStatsDisabled() {
+		return nil
+	}
 	uniq := uniqueNonEmptyStrings(emails)
 	if len(uniq) == 0 {
 		return nil

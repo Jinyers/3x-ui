@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
@@ -304,6 +305,9 @@ func (j *NodeTrafficSyncJob) nodeInboundSpeed() []*xray.Traffic {
 // per node to the clients that node actually hosts, and throttled — the
 // aggregates only need to reach nodes on a human timescale, not every poll.
 func (j *NodeTrafficSyncJob) maybePushGlobals(mgr *runtime.Manager, nodes []*model.Node) {
+	if config.IsTrafficStatsDisabled() {
+		return
+	}
 	j.globalPushMu.Lock()
 	now := time.Now().Unix()
 	if now-j.lastGlobalPush < int64(nodeGlobalPushInterval/time.Second) {
@@ -395,6 +399,13 @@ func (j *NodeTrafficSyncJob) syncOne(mgr *runtime.Manager, n *model.Node, doIpSy
 		logger.Warningf("node traffic sync: reset delivery to %s failed, retrying next tick: %v", n.Name, resetErr)
 	}
 	resetCancel()
+
+	// Configuration reconciliation and explicitly requested resets still run.
+	// Traffic snapshots also merge counters, lifecycle state and node adoption;
+	// leave that accounting path idle in the RouterOS low-write mode.
+	if config.IsTrafficStatsDisabled() {
+		return nil
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), nodeTrafficSyncRequestTimeout)
 	defer cancel()

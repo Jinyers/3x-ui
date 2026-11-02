@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service"
@@ -60,6 +61,9 @@ func forEachResetBounded(n int, reset func(i int)) {
 // Run resets traffic statistics for all inbounds that match the configured reset
 // period, then for the clients carrying that period on their own (#5497).
 func (j *PeriodicTrafficResetJob) Run() {
+	if config.IsTrafficStatsDisabled() {
+		return
+	}
 	j.resetInboundsOnSchedule()
 	j.resetClientsOnTheirOwnCycle()
 }

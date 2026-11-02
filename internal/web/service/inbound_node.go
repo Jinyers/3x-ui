@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawgkern"
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -389,6 +390,9 @@ func (s *InboundService) SnapshotHasUnadoptedInbounds(nodeID int, snap *runtime.
 // SetRemoteTraffic merges a node snapshot. justPushed marks the tick whose
 // config push just landed, whose snapshot may still predate it (#6228).
 func (s *InboundService) SetRemoteTraffic(nodeID int, snap *runtime.TrafficSnapshot, dirty, justPushed bool) (bool, error) {
+	if config.IsTrafficStatsDisabled() {
+		return false, nil
+	}
 	var structuralChange bool
 	err := submitTrafficWrite(func() error {
 		var inner error
