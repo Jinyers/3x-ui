@@ -16,6 +16,8 @@ x-ui/
 **/.env
 **/.env.*
 **/*.pem
+# Public verification key embedded by internal/pia; this is source, not a secret.
+!internal/pia/trust/serverlist_public_key.pem
 **/*.key
 **/node_token_key.json
 .aws

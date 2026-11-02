@@ -18,13 +18,13 @@ XUI_ENABLE_FAIL2BAN=false
 сохраняют прежнее поведение. Обе оптимизации независимы. В образе они по
 умолчанию выключены. `.env` не включается в образ; для RouterOS используйте envlist.
 
-* `XUI_DISABLE_METRICS_PERSISTENCE`: не регистрируется минутное сохранение;
+- `XUI_DISABLE_METRICS_PERSISTENCE`: не регистрируется минутное сохранение;
   сама `PersistSystemMetrics` также защищена от любых вызовов, включая shutdown.
   `system_metrics.gob` и временный `.tmp` не создаются и не перезаписываются.
   Существующий снимок не удаляется, его чтение при запуске сохраняется.
   CPU, RAM, дисковая и сетевая нагрузка обновляются каждые 2 секунды;
   история текущего процесса остаётся в RAM и пропадает после перезапуска.
-* `XUI_DISABLE_TRAFFIC_STATS`: останавливается опрос Xray для учёта трафика;
+- `XUI_DISABLE_TRAFFIC_STATS`: останавливается опрос Xray для учёта трафика;
   `AddTraffic` inbound/client/outbound, обновление `last_online`, глобальные
   счётчики узлов, принятие удалённых снимков и квитанции TUIC не пишутся в БД.
   Автоматические сбросы счётчиков и replay/создание журнала TUIC выключены.
@@ -48,23 +48,23 @@ snapshot (adoption), статистика и IP-синхронизация эт�
 
 ## Какие записи исследованы
 
-| Источник | Период/условие | Результат |
-| --- | --- | --- |
-| `ServerController.startTask` → `PersistSystemMetrics` | 1 минута | Отключается первым флагом |
-| `Server.stop` → `PersistSystemMetrics` | SIGTERM/SIGHUP/остановка панели | Защищён тем же флагом |
-| `XrayTrafficJob` | 5 секунд | Отключается вторым флагом |
-| `InboundService.AddTraffic` | опрос, sidecar, генерация Xray-конфига | No-op при втором флаге, включая lifecycle maintenance |
-| `OutboundService.AddTraffic` | Xray traffic poll | No-op при втором флаге |
-| `BumpClientsLastOnline` | соединения Xray/TUIC | No-op при втором флаге |
-| MTProto/AmneziaWG/TUIC | 10 секунд и финальный flush | Согласование работает; общий учёт защищён |
-| `NodeTrafficSyncJob` | 5 секунд | Конфигурация/ручные сбросы работают, traffic pull/global push пропускаются |
-| `AcceptGlobalTraffic`, `SetRemoteTraffic`, `AddTuicTrafficBatch` | API/опрос/replay | Защищены до обращения к БД |
-| `PeriodicTrafficResetJob` | час/день/неделя/месяц | Автоматические сбросы выключены |
-| `CheckClientIpJob`, IP-ban state, очистка IP-истории | 10 секунд/сутки, если настроены | Сохранены: обеспечивают IP-лимиты и безопасность |
-| `NodeHeartbeatJob` | 5 секунд при наличии узлов | Сохранён: доступность, состояние и уведомления узлов |
-| Outbound subscription, LDAP, WARP, настройка remote routing | настройки/расписание | Сохранены: могут менять конфигурацию |
-| Вход в панель, API tokens, HWID подписок, ручные операции | запросы пользователя | Сохранены |
-| Миграции и seed SQLite | запуск/обновление | Сохранены |
+| Источник                                                         | Период/условие                         | Результат                                                                  |
+| ---------------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------- |
+| `ServerController.startTask` → `PersistSystemMetrics`            | 1 минута                               | Отключается первым флагом                                                  |
+| `Server.stop` → `PersistSystemMetrics`                           | SIGTERM/SIGHUP/остановка панели        | Защищён тем же флагом                                                      |
+| `XrayTrafficJob`                                                 | 5 секунд                               | Отключается вторым флагом                                                  |
+| `InboundService.AddTraffic`                                      | опрос, sidecar, генерация Xray-конфига | No-op при втором флаге, включая lifecycle maintenance                      |
+| `OutboundService.AddTraffic`                                     | Xray traffic poll                      | No-op при втором флаге                                                     |
+| `BumpClientsLastOnline`                                          | соединения Xray/TUIC                   | No-op при втором флаге                                                     |
+| MTProto/AmneziaWG/TUIC                                           | 10 секунд и финальный flush            | Согласование работает; общий учёт защищён                                  |
+| `NodeTrafficSyncJob`                                             | 5 секунд                               | Конфигурация/ручные сбросы работают, traffic pull/global push пропускаются |
+| `AcceptGlobalTraffic`, `SetRemoteTraffic`, `AddTuicTrafficBatch` | API/опрос/replay                       | Защищены до обращения к БД                                                 |
+| `PeriodicTrafficResetJob`                                        | час/день/неделя/месяц                  | Автоматические сбросы выключены                                            |
+| `CheckClientIpJob`, IP-ban state, очистка IP-истории             | 10 секунд/сутки, если настроены        | Сохранены: обеспечивают IP-лимиты и безопасность                           |
+| `NodeHeartbeatJob`                                               | 5 секунд при наличии узлов             | Сохранён: доступность, состояние и уведомления узлов                       |
+| Outbound subscription, LDAP, WARP, настройка remote routing      | настройки/расписание                   | Сохранены: могут менять конфигурацию                                       |
+| Вход в панель, API tokens, HWID подписок, ручные операции        | запросы пользователя                   | Сохранены                                                                  |
+| Миграции и seed SQLite                                           | запуск/обновление                      | Сохранены                                                                  |
 
 Общую очередь `TrafficWriter` отключать нельзя: через неё также проходят
 транзакции конфигурации. SQLite journal mode, синхронизация и надёжность настроек
