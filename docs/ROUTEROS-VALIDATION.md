@@ -12,6 +12,7 @@ Xray 26.10.31 (`a4a3dff`), SQLite, отдельная временная БД.
   `internal/web/service`, `internal/web/service/outbound`, `internal/web/job`,
   `internal/web/controller`, `internal/web` — все 7 пакетов успешно.
 - `go build -ldflags '-w -s'` — бинарник панели собран.
+- `actionlint 1.7.12` — workflow ARM64/GHCR прошёл проверку.
 - `TestDisabledMetricsPersistence` — live-история доступна, файл и `.tmp` не
   создаются, существующие данные/mtime не меняются; без флага запись работает.
 - `TestDisabledTrafficStatsNoSQLiteChanges` — повторные ненулевые delta и
@@ -47,3 +48,17 @@ Workflow выполняет нативные ARM64-сборку, интегра�
 существующие RouterOS маршруты, DNS и policy routing здесь недоступны.
 Аппаратную проверку по инструкции `ROUTEROS.md` нужно выполнить перед заменой
 рабочего контейнера. Успешный Linux HTTP-тест не заменяет эту проверку.
+
+Публикация ветки из текущей сессии заблокирована GitHub: `git push` и создание
+ref через подключённый API вернули HTTP 403 `Resource not accessible by integration`.
+Ветка и commits сохранены локально; PR и образ в GHCR не опубликованы.
+После восстановления write-доступа:
+
+```sh
+git push -u origin feat/routeros-low-write
+gh workflow run docker.yml --ref feat/routeros-low-write
+```
+
+Ручная сборка этой ветки публикует SHA-тег; общий `routeros-arm64` обновляется
+только после сборки default branch. Не устанавливайте образ до успешного
+завершения workflow и проверки его digest.
