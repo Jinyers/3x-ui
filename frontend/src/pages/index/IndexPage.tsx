@@ -214,7 +214,6 @@ export default function IndexPage() {
                     onOpenVersionSwitch={() => setVersionOpen(true)}
                   />
 
-
                   {health && (
                     <div className="ov-health" style={{ color: health.color }}>
                       <span className="ov-health-mark" />
