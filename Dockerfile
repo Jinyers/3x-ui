@@ -3,11 +3,9 @@
 # ========================================================
 FROM --platform=$BUILDPLATFORM node:26-alpine AS frontend
 WORKDIR /src/frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
 COPY frontend/ ./
 COPY internal/web/translation /src/internal/web/translation
-RUN npm run build
+RUN npm ci && npm run build
 
 # ========================================================
 # Stage: Builder
@@ -28,12 +26,30 @@ COPY --from=frontend /src/internal/web/dist ./internal/web/dist
 
 ENV CGO_ENABLED=1
 ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
-RUN go build -ldflags "-w -s" -o build/x-ui main.go
-RUN ./DockerInit.sh "$TARGETARCH" "$TARGETVARIANT"
+RUN go build -ldflags "-w -s" -o build/x-ui main.go \
+  && ./DockerInit.sh "$TARGETARCH" "$TARGETVARIANT"
 
 # ========================================================
 # Stage: Final Image of 3x-ui
 # ========================================================
+# RouterOS omits fail2ban and its Python dependencies. Runtime flags stay opt-in.
+FROM alpine:3.23 AS routeros
+WORKDIR /app
+RUN apk add --no-cache ca-certificates tzdata bash curl openssl
+COPY --from=builder /app/build/ /app/
+COPY --from=builder /app/DockerEntrypoint.sh /app/
+COPY --from=builder /app/x-ui.sh /usr/bin/x-ui
+COPY --from=builder /app/internal/web/translation /app/internal/web/translation
+RUN chmod +x /app/DockerEntrypoint.sh /app/x-ui /usr/bin/x-ui
+ENV TZ="UTC" \
+    XUI_IN_DOCKER="true" \
+    XUI_MAIN_FOLDER="/app" \
+    XUI_ENABLE_FAIL2BAN="false"
+EXPOSE 2053
+VOLUME ["/etc/x-ui"]
+CMD ["./x-ui"]
+ENTRYPOINT ["/app/DockerEntrypoint.sh"]
+
 FROM alpine
 ENV TZ=Asia/Tehran
 WORKDIR /app
