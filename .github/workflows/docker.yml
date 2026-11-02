@@ -92,7 +92,7 @@ jobs:
             -e XUI_DISABLE_METRICS_PERSISTENCE=true \
             -e XUI_DISABLE_TRAFFIC_STATS=true "$IMAGE"
           trap 'docker rm -f xui-image-smoke >/dev/null 2>&1 || true' EXIT
-          curl --fail --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:2053/ -o /dev/null
+          curl --fail --connect-timeout 2 --max-time 5 --retry 20 --retry-all-errors --retry-delay 1 http://127.0.0.1:2053/ -o /dev/null
           sleep 3
           docker stop -t 30 xui-image-smoke
           test "$(docker inspect --format '{{.State.ExitCode}}' xui-image-smoke)" = 0
