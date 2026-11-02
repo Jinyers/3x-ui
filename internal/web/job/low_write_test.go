@@ -16,12 +16,12 @@ import (
 func TestDisabledTrafficStatsKeepsTuicJournal(t *testing.T) {
 	t.Setenv("XUI_DB_FOLDER", t.TempDir())
 	t.Setenv("XUI_DISABLE_TRAFFIC_STATS", "true")
-	if err := os.MkdirAll(tuicJournalDir(), 0700); err != nil {
+	if err := os.MkdirAll(tuicJournalDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(tuicJournalDir(), "existing.json")
 	want := []byte("retained journal, not decoded while accounting is off")
-	if err := os.WriteFile(path, want, 0600); err != nil {
+	if err := os.WriteFile(path, want, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	j := NewTuicJob()

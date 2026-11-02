@@ -7,11 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/runtime"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service/outbound"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
-	"gorm.io/gorm"
 )
 
 func TestDisabledMetricsPersistence(t *testing.T) {
@@ -36,7 +37,7 @@ func TestDisabledMetricsPersistence(t *testing.T) {
 	}
 	path := systemMetricsStorePath()
 	data := []byte("existing snapshot must remain untouched")
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	old := time.Unix(100, 0)
@@ -144,8 +145,10 @@ func TestDisabledTrafficStatsNoSQLiteChanges(t *testing.T) {
 // Compare generated configs without opening a privileged TUN device on the host.
 func TestLowWriteFlagsPreserveTunRoutingConfig(t *testing.T) {
 	db := initTrafficTestDB(t)
-	ib := &model.Inbound{UserId: 1, Tag: "tun-low-write", Enable: true, Port: 43997,
-		Protocol: model.Protocol("tun"), Settings: `{"name":"xray-test","MTU":1500}`, StreamSettings: `{}`, Sniffing: `{}`}
+	ib := &model.Inbound{
+		UserId: 1, Tag: "tun-low-write", Enable: true, Port: 43997,
+		Protocol: model.Protocol("tun"), Settings: `{"name":"xray-test","MTU":1500}`, StreamSettings: `{}`, Sniffing: `{}`,
+	}
 	if err := db.Create(ib).Error; err != nil {
 		t.Fatal(err)
 	}
