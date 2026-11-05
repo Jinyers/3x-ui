@@ -24,6 +24,7 @@ func (s *NodeService) LocalDescendants() ([]model.NodeSummary, error) {
 	}
 	out := make([]model.NodeSummary, 0, len(nodes))
 	for _, n := range nodes {
+		applyVolatileHeartbeat(db, n)
 		if n.Guid == "" {
 			continue
 		}

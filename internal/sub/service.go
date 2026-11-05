@@ -19,6 +19,7 @@ import (
 	"github.com/goccy/go-json"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawg"
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -475,7 +476,7 @@ func (s *SubService) overlayInboundTunnelIdentity(inbound *model.Inbound, client
 
 // RecordSubscriptionFetch records a successful subscription response for all clients sharing subId.
 func (s *SubService) RecordSubscriptionFetch(subId string) error {
-	if strings.TrimSpace(subId) == "" {
+	if config.IsTrafficStatsDisabled() || strings.TrimSpace(subId) == "" {
 		return nil
 	}
 	return database.GetDB().Model(&xray.ClientTraffic{}).

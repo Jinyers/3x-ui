@@ -430,6 +430,12 @@ func (s *SettingService) saveSetting(key string, value string) error {
 	} else if err != nil {
 		return err
 	}
+	// GetPanelGuid re-saves the generated default on every read during the
+	// first process lifetime. Keep identical setting saves read-only in the
+	// low-write mode while still persisting new or changed configuration.
+	if (config.IsMetricsPersistenceDisabled() || config.IsTrafficStatsDisabled()) && setting.Value == value {
+		return nil
+	}
 	setting.Key = key
 	setting.Value = value
 	return db.Save(setting).Error

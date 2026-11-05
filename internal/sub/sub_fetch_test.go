@@ -48,6 +48,16 @@ func TestRecordSubscriptionFetch(t *testing.T) {
 	if bravo.LastSubFetch != 0 {
 		t.Fatalf("bravo lastSubFetch = %d, want 0", bravo.LastSubFetch)
 	}
+	t.Setenv("XUI_DISABLE_TRAFFIC_STATS", "true")
+	if err := (&SubService{}).RecordSubscriptionFetch("sub-bravo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("email = ?", "bravo@example.com").First(&bravo).Error; err != nil {
+		t.Fatal(err)
+	}
+	if bravo.LastSubFetch != 0 {
+		t.Fatal("low-write mode recorded subscription activity")
+	}
 
 	if err := (&SubService{}).RecordSubscriptionFetch("unknown"); err != nil {
 		t.Fatalf("unknown subId: %v", err)

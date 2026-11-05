@@ -390,9 +390,6 @@ func (s *InboundService) SnapshotHasUnadoptedInbounds(nodeID int, snap *runtime.
 // SetRemoteTraffic merges a node snapshot. justPushed marks the tick whose
 // config push just landed, whose snapshot may still predate it (#6228).
 func (s *InboundService) SetRemoteTraffic(nodeID int, snap *runtime.TrafficSnapshot, dirty, justPushed bool) (bool, error) {
-	if config.IsTrafficStatsDisabled() {
-		return false, nil
-	}
 	var structuralChange bool
 	err := submitTrafficWrite(func() error {
 		var inner error
@@ -503,6 +500,7 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 	}
 	db := database.GetDB()
 	now := time.Now().UnixMilli()
+	accountTraffic := !config.IsTrafficStatsDisabled()
 
 	// originGuidFor attributes a synced inbound to the panel that physically
 	// hosts it. A node's OWN inbounds report either an empty origin or — on
@@ -839,6 +837,9 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				ShareAddrStrategy:    "node",
 				DisableFlow:          snapIb.DisableFlow,
 			}
+			if !accountTraffic {
+				newIb.Up, newIb.Down = 0, 0
+			}
 			if err := tx.Create(&newIb).Error; err != nil {
 				logger.Warningf("setRemoteTraffic: create central inbound for tag %q failed: %v", snapIb.Tag, err)
 				continue
@@ -883,21 +884,25 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			pendingAdopts = append(pendingAdopts, pendingAdopt{
 				central: c, snapIb: snapIb, wireSettings: adoptedSettings,
 			})
-			updates["enable"] = snapIb.Enable
-			updates["remark"] = snapIb.Remark
-			updates["sub_sort_index"] = normalizeSubSortIndex(snapIb.SubSortIndex)
-			updates["listen"] = snapIb.Listen
-			updates["port"] = snapIb.Port
-			updates["protocol"] = snapIb.Protocol
-			updates["total"] = snapIb.Total
-			updates["expiry_time"] = snapIb.ExpiryTime
-			updates["stream_settings"] = snapIb.StreamSettings
-			updates["sniffing"] = snapIb.Sniffing
-			updates["traffic_reset"] = snapIb.TrafficReset
-			updates["traffic_reset_day"] = normalizeTrafficResetDay(snapIb.TrafficResetDay)
-			updates["last_traffic_reset_time"] = snapIb.LastTrafficResetTime
+			// Config adoption stays active without accounting. An unchanged
+			// snapshot must not rewrite these same fields every five seconds.
+			if accountTraffic || adoptedWireChanged(c, snapIb, adoptedSettings) || c.LastTrafficResetTime != snapIb.LastTrafficResetTime {
+				updates["enable"] = snapIb.Enable
+				updates["remark"] = snapIb.Remark
+				updates["sub_sort_index"] = normalizeSubSortIndex(snapIb.SubSortIndex)
+				updates["listen"] = snapIb.Listen
+				updates["port"] = snapIb.Port
+				updates["protocol"] = snapIb.Protocol
+				updates["total"] = snapIb.Total
+				updates["expiry_time"] = snapIb.ExpiryTime
+				updates["stream_settings"] = snapIb.StreamSettings
+				updates["sniffing"] = snapIb.Sniffing
+				updates["traffic_reset"] = snapIb.TrafficReset
+				updates["traffic_reset_day"] = normalizeTrafficResetDay(snapIb.TrafficResetDay)
+				updates["last_traffic_reset_time"] = snapIb.LastTrafficResetTime
+			}
 		}
-		if !inGrace || (snapIb.Up+snapIb.Down) <= (c.Up+c.Down) {
+		if accountTraffic && (!inGrace || (snapIb.Up+snapIb.Down) <= (c.Up+c.Down)) {
 			updates["up"] = snapIb.Up
 			updates["down"] = snapIb.Down
 		}
@@ -1083,6 +1088,15 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			clientFrozen := lifecycleFrozen || owed || onlyUsage
 
 			base, seen := nodeBaselines[cs.Email]
+			if !accountTraffic {
+				// Keep stored counters and online history frozen while still
+				// merging the node's client configuration and membership.
+				canon = base
+				cs.LastOnline = 0
+				if row := statByEmail[cs.Email]; row != nil {
+					cs.LastOnline = row.LastOnline
+				}
+			}
 			var deltaUp, deltaDown int64
 			if seen {
 				if deltaUp = canon.Up - base.Up; deltaUp < 0 {
@@ -1107,7 +1121,7 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 					continue
 				}
 				var seedUp, seedDown int64
-				if isNewInbound && !isClientEmailTombstoned(cs.Email) {
+				if accountTraffic && isNewInbound && !isClientEmailTombstoned(cs.Email) {
 					seedUp, seedDown = canon.Up, canon.Down
 				}
 				row := &xray.ClientTraffic{
@@ -1133,10 +1147,12 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				centralCSByEmail[cs.Email] = row
 				statByEmail[cs.Email] = row
 				structuralChange = true
-				if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon.Up, canon.Down); err != nil {
-					return false, err
+				if accountTraffic {
+					if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon.Up, canon.Down); err != nil {
+						return false, err
+					}
+					nodeBaselines[cs.Email] = nodeTrafficCounter{Up: canon.Up, Down: canon.Down}
 				}
-				nodeBaselines[cs.Email] = nodeTrafficCounter{Up: canon.Up, Down: canon.Down}
 				continue
 			}
 
@@ -1153,7 +1169,7 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				}
 			}
 
-			renewed := !clientFrozen && seen && existing != nil && nodeClientRenewed(existing, cs, canon, base)
+			renewed := accountTraffic && !clientFrozen && seen && existing != nil && nodeClientRenewed(existing, cs, canon, base)
 			if renewed {
 				// Reject when the node's own settings still carry the old absolute:
 				// lagging ClientStats after a master shorten mimic a renew (#6228).
@@ -1225,7 +1241,7 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 			if clientFrozen && seen && (canon.Up < base.Up || canon.Down < base.Down) {
 				continue
 			}
-			if seen && base == canon {
+			if !accountTraffic || (seen && base == canon) {
 				continue
 			}
 			if err := s.upsertNodeBaseline(tx, nodeID, cs.Email, canon.Up, canon.Down); err != nil {

@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/runtime"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service/outbound"
@@ -106,9 +107,6 @@ func TestDisabledTrafficStatsNoSQLiteChanges(t *testing.T) {
 		if err := in.AcceptGlobalTraffic("master", clients); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := in.SetRemoteTraffic(1, &runtime.TrafficSnapshot{}, false, false); err != nil {
-			t.Fatal(err)
-		}
 		if err := in.AddTuicTrafficBatch("batch", clients); err != nil {
 			t.Fatal(err)
 		}
@@ -139,6 +137,161 @@ func TestDisabledTrafficStatsNoSQLiteChanges(t *testing.T) {
 	}
 	if got.Up != 50 || got.Down != 80 || got.Remark != "settings still writable" {
 		t.Fatalf("unexpected inbound after enabling stats: %+v", got)
+	}
+}
+
+func sqliteChanges(t *testing.T, db *gorm.DB) func() int64 {
+	t.Helper()
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	return func() int64 {
+		t.Helper()
+		var n int64
+		if err := db.Raw("SELECT total_changes()").Scan(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+}
+
+func TestLowWriteNodeConfigAdoptionWithoutAccounting(t *testing.T) {
+	db := initTrafficTestDB(t)
+	changes := sqliteChanges(t, db)
+	t.Setenv("XUI_DISABLE_TRAFFIC_STATS", "true")
+	node := &model.Node{Name: "remote", Guid: "remote-guid", Address: "192.0.2.10", Port: 2053, Enable: true}
+	if err := db.Create(node).Error; err != nil {
+		t.Fatal(err)
+	}
+	ib := &model.Inbound{
+		Tag: "remote-vless", Port: 443, Enable: true, Protocol: model.VLESS,
+		Settings: `{"clients":[{"id":"11111111-2222-4333-8444-555555555555","email":"remote@example","enable":true}]}`,
+		Up:       100, Down: 200,
+		ClientStats: []xray.ClientTraffic{{Email: "remote@example", Enable: true, Up: 100, Down: 200, LastOnline: 1000}},
+	}
+	snap := &runtime.TrafficSnapshot{Inbounds: []*model.Inbound{ib}, OnlineEmails: []string{"remote@example"}}
+	svc := &InboundService{}
+	merge := func() {
+		t.Helper()
+		if _, err := svc.SetRemoteTraffic(node.Id, snap, false, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	merge() // Initial adoption is a configuration write.
+	var stored model.Inbound
+	if err := db.Where("node_id = ?", node.Id).First(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.Up != 0 || stored.Down != 0 || len(linksOf(t, stored.Id)) != 1 {
+		t.Fatal("adoption must retain client configuration without importing usage")
+	}
+	merge() // Allow the normal adoption lifecycle to converge.
+	before := changes()
+	for range 3 {
+		ib.Up += 100
+		ib.Down += 200
+		ib.ClientStats[0].Up += 100
+		ib.ClientStats[0].LastOnline++
+		merge()
+	}
+	if after := changes(); after != before {
+		t.Fatalf("steady node polls wrote SQLite: %d -> %d", before, after)
+	}
+	ct := readTraffic(t, db, "remote@example")
+	if ct.Up != 0 || ct.Down != 0 || ct.LastOnline != 0 {
+		t.Fatalf("accounting was not frozen: %+v", ct)
+	}
+	ib.Remark = "edited remotely"
+	ib.Settings = `{"clients":[{"id":"11111111-2222-4333-8444-555555555555","email":"remote@example","enable":true},{"id":"21111111-2222-4333-8444-555555555555","email":"second@example","enable":true}]}`
+	merge()
+	if err := db.First(&stored, stored.Id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.Remark != ib.Remark || len(linksOf(t, stored.Id)) != 2 || changes() <= before {
+		t.Fatal("remote configuration edits must still be imported and persisted")
+	}
+}
+
+func TestLowWriteHeartbeatKeepsLiveMetricsAndNodeState(t *testing.T) {
+	db := initTrafficTestDB(t)
+	changes := sqliteChanges(t, db)
+	t.Setenv("XUI_DISABLE_METRICS_PERSISTENCE", "true")
+	node := &model.Node{Name: "remote", Address: "192.0.2.10", Port: 2053, Enable: true}
+	if err := db.Create(node).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := &NodeService{}
+	p := HeartbeatPatch{Guid: "remote-guid", Status: "online", XrayState: "running", PanelVersion: "v3", LastHeartbeat: time.Now().Unix(), CpuPct: 1, NetUp: 100}
+	if err := svc.UpdateHeartbeat(node.Id, p); err != nil {
+		t.Fatal(err)
+	}
+	before := changes()
+	for range 3 {
+		p.LastHeartbeat++
+		p.CpuPct++
+		p.LatencyMs++
+		p.NetUp++
+		if err := svc.UpdateHeartbeat(node.Id, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if after := changes(); after != before {
+		t.Fatalf("heartbeat metrics wrote SQLite: %d -> %d", before, after)
+	}
+	got, err := svc.GetById(node.Id)
+	if err != nil || got.LastHeartbeat != p.LastHeartbeat || got.CpuPct != p.CpuPct || got.NetUp != p.NetUp {
+		t.Fatalf("live node metrics missing: %+v, %v", got, err)
+	}
+	all, err := svc.GetAll()
+	if err != nil || len(all) != 1 || all[0].LatencyMs != p.LatencyMs {
+		t.Fatalf("node list lost live metrics: %+v, %v", all, err)
+	}
+	descendants, err := svc.LocalDescendants()
+	if err != nil || len(descendants) != 1 || descendants[0].LastHeartbeat != p.LastHeartbeat {
+		t.Fatalf("node API lost live metrics: %+v, %v", descendants, err)
+	}
+	if len(svc.AggregateNodeMetric(node.Id, "netUp", 2, 60)) == 0 {
+		t.Fatal("live node metric history missing")
+	}
+	p.Status, p.LastError = "offline", "connection refused"
+	if err := svc.UpdateHeartbeat(node.Id, p); err != nil {
+		t.Fatal(err)
+	}
+	_, status, _, _, err := svc.NodeSyncState(node.Id)
+	if err != nil || status != "offline" || changes() <= before {
+		t.Fatal("real health transitions must remain visible to reconciliation")
+	}
+}
+
+func TestLowWriteUnlimitedHwidDoesNotTrackDevices(t *testing.T) {
+	initClientHwidTestDB(t)
+	db := database.GetDB()
+	changes := sqliteChanges(t, db)
+	rec := seedHwidClient(t, 0)
+	t.Setenv("XUI_DISABLE_TRAFFIC_STATS", "true")
+	before := changes()
+	for range 3 {
+		res, err := (&ClientService{}).EnforceHwidForSubID(rec.SubID, HwidRequest{Hwid: "device-one", UserAgent: "Happ/1.0"})
+		if err != nil || !res.Allowed || res.Active {
+			t.Fatalf("unlimited HWID response: %+v, %v", res, err)
+		}
+	}
+	if changes() != before {
+		t.Fatal("unlimited HWID history wrote SQLite")
+	}
+	if err := db.Model(rec).Update("limit_hwid", 1).Error; err != nil {
+		t.Fatal(err)
+	}
+	res, err := (&ClientService{}).EnforceHwidForSubID(rec.SubID, HwidRequest{Hwid: "device-one"})
+	if err != nil || !res.Allowed || !res.Active {
+		t.Fatalf("explicit HWID limit must still work: %+v, %v", res, err)
+	}
+	res, err = (&ClientService{}).EnforceHwidForSubID(rec.SubID, HwidRequest{Hwid: "device-two"})
+	if err != nil || res.Allowed || !res.MaxDevicesReached {
+		t.Fatalf("explicit HWID limit bypassed: %+v, %v", res, err)
 	}
 }
 

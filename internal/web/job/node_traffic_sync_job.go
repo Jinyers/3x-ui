@@ -400,13 +400,6 @@ func (j *NodeTrafficSyncJob) syncOne(mgr *runtime.Manager, n *model.Node, doIpSy
 	}
 	resetCancel()
 
-	// Configuration reconciliation and explicitly requested resets still run.
-	// Traffic snapshots also merge counters, lifecycle state and node adoption;
-	// leave that accounting path idle in the RouterOS low-write mode.
-	if config.IsTrafficStatsDisabled() {
-		return nil
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), nodeTrafficSyncRequestTimeout)
 	defer cancel()
 
@@ -454,7 +447,7 @@ func (j *NodeTrafficSyncJob) syncOne(mgr *runtime.Manager, n *model.Node, doIpSy
 		active = append(active, emails...)
 	}
 
-	if !doIpSync {
+	if !doIpSync || config.IsTrafficStatsDisabled() {
 		return active
 	}
 

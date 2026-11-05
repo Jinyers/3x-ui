@@ -3,7 +3,7 @@ name: RouterOS ARM64 image
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "feat/routeros-*"]
     tags: ["v*.*.*"]
   pull_request:
     branches: [main]
@@ -39,7 +39,7 @@ jobs:
           npm run build
       - name: Verify persistence, configuration and Xray regressions
         run: |
-          go test ./internal/config ./internal/xray ./internal/web/job ./internal/web/service ./internal/web/service/outbound ./internal/web/controller ./internal/web -count=1
+          go test ./internal/config ./internal/xray ./internal/web/job ./internal/web/service ./internal/web/service/outbound ./internal/web/controller ./internal/web ./internal/sub -count=1
           go build -o /tmp/x-ui .
       - name: Image name
         id: image
