@@ -283,6 +283,9 @@ outbound, `last_online`, global/TUIC пути дают ноль изменени
 `TestLowWriteNodeJobStillImportsConfiguration` повторяет это через настоящий
 HTTP-клиент нод и плановое задание. `TestLowWriteHeartbeatKeepsLiveMetricsAndNodeState`
 проверяет живые метрики в RAM и сохранение реальных переходов статуса нод.
+`TestLowWriteMasterManagesNormalNode` проверяет две запущенные панели: master
+без локальных клиентов с обоими флагами и обычную удалённую ноду; команды запуска
+приведены в `ROUTEROS-VALIDATION.md`.
 
 Автоматическая проверка с настоящим Xray (assets — каталог `bin` из образа):
 
