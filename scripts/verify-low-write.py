@@ -6,7 +6,9 @@ Assets must contain xray-linux-<GOARCH> and the matching geodata files.
 No RouterOS/TUN privileges are exercised by this check.
 """
 import argparse
+import base64
 import hashlib
+import http.cookiejar
 import http.server
 import json
 import os
@@ -15,11 +17,105 @@ import shutil
 import signal
 import socket
 import sqlite3
+import struct
 import subprocess
 import tempfile
 import threading
 import time
 import urllib.request
+
+
+class LiveProbe:
+    """Small RFC6455 test client; keeps the integration check stdlib-only."""
+
+    def __init__(self, port, cookie):
+        self.closed = False
+        self.error = None
+        self.positive_frames = 0
+        self.buffer = b''
+        self.socket = socket.create_connection(('127.0.0.1', port), timeout=2)
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.socket.sendall((
+            f'GET /ws HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n'
+            'Upgrade: websocket\r\nConnection: Upgrade\r\n'
+            f'Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n'
+            f'Cookie: {cookie}\r\n\r\n'
+        ).encode())
+        while b'\r\n\r\n' not in self.buffer:
+            data = self.socket.recv(4096)
+            assert data, 'WebSocket handshake closed'
+            self.buffer += data
+            assert len(self.buffer) < 65536, 'Oversized WebSocket headers'
+        headers, self.buffer = self.buffer.split(b'\r\n\r\n', 1)
+        assert headers.split(b'\r\n', 1)[0].split()[1] == b'101', 'WebSocket upgrade failed'
+        accept = base64.b64encode(hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest())
+        assert b'sec-websocket-accept: ' + accept.lower() in headers.lower(), 'Invalid WebSocket accept'
+        self.thread = threading.Thread(target=self.read, daemon=True)
+        self.thread.start()
+
+    def take(self, length):
+        while len(self.buffer) < length:
+            if self.closed:
+                raise EOFError()
+            try:
+                chunk = self.socket.recv(max(4096, length - len(self.buffer)))
+            except socket.timeout:
+                continue
+            if not chunk:
+                raise EOFError()
+            self.buffer += chunk
+        result, self.buffer = self.buffer[:length], self.buffer[length:]
+        return result
+
+    def read(self):
+        try:
+            fragments = b''
+            while not self.closed:
+                first, second = self.take(2)
+                opcode, length = first & 15, second & 127
+                assert not second & 128, 'Server must not mask WebSocket frames'
+                if length == 126:
+                    length = struct.unpack('!H', self.take(2))[0]
+                elif length == 127:
+                    length = struct.unpack('!Q', self.take(8))[0]
+                assert length <= 1024 * 1024, 'Oversized WebSocket frame'
+                payload = self.take(length)
+                if opcode == 8:
+                    if not self.closed:
+                        raise EOFError('WebSocket closed during live traffic observation')
+                    break
+                if opcode == 9:
+                    mask = os.urandom(4)
+                    self.socket.sendall(bytes([0x8A, 0x80 | len(payload)]) + mask + bytes(v ^ mask[i % 4] for i, v in enumerate(payload)))
+                    continue
+                if opcode not in (0, 1):
+                    continue
+                fragments += payload
+                assert len(fragments) <= 1024 * 1024
+                if not first & 128:
+                    continue
+                message = json.loads(fragments)
+                fragments = b''
+                if message.get('type') != 'traffic':
+                    continue
+                event = message.get('payload') or {}
+                if any(row.get('IsInbound') and row.get('Up', 0) + row.get('Down', 0) > 0 for row in event.get('traffics') or []):
+                    assert event.get('persistenceDisabled') is True, 'Missing live-only accounting indicator'
+                    self.positive_frames += 1
+        except Exception as error:
+            if not self.closed:
+                self.error = str(error) or type(error).__name__
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.socket.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.socket.close()
+        self.thread.join(timeout=3)
 
 
 def free_port():
@@ -54,10 +150,13 @@ def main():
         database.mkdir()
         port, proxy_port, api_port = free_port(), free_port(), free_port()
         base_env = dict(os.environ, XUI_DB_FOLDER=str(database),
+                        XUI_DB_TYPE='sqlite', XUI_DB_DSN='',
+                        XUI_ENABLE_POLICY_ROUTING='false', NODE_TOKEN_ENCRYPTION='off',
                         XUI_BIN_FOLDER=str(assets), XUI_LOG_FOLDER=str(root / 'logs'),
                         XUI_PORT=str(port), XUI_INIT_WEB_BASE_PATH='/',
                         XUI_DISABLE_METRICS_PERSISTENCE='true', XUI_ENABLE_FAIL2BAN='false')
         processes = []
+        probes = []
         direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
         def launch(disabled):
@@ -69,7 +168,8 @@ def main():
             processes.append(proc)
             for _ in range(200):
                 if proc.poll() is not None:
-                    raise RuntimeError(f'Panel exited: {proc.returncode}; inspect isolated logs')
+                    details = '\n'.join(line for line in (root / 'panel.log').read_text(errors='replace')[-6000:].splitlines() if 'No panel user existed' not in line)
+                    raise RuntimeError(f'Panel exited: {proc.returncode}; isolated test log tail:\n{details}')
                 try:
                     with direct.open(f'http://127.0.0.1:{port}/', timeout=1) as response:
                         assert response.status == 200
@@ -92,6 +192,7 @@ def main():
         threading.Thread(target=origin.serve_forever, daemon=True).start()
         try:
             stop(launch(True))
+            subprocess.run([str(panel), 'setting', '-username', 'low-write-check', '-password', 'low-write-test-password'], cwd=root, env=base_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
             dbpath = database / 'x-ui.db'
             template = {
                 'api': {'tag': 'api', 'services': ['HandlerService', 'StatsService', 'RoutingService']},
@@ -144,6 +245,15 @@ def main():
             else:
                 raise RuntimeError('Xray HTTP inbound did not start')
             time.sleep(3)  # Let startup-only migrations/settings settle.
+            cookies = http.cookiejar.CookieJar()
+            auth = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(cookies))
+            with auth.open(f'http://127.0.0.1:{port}/csrf-token', timeout=3) as response:
+                csrf = json.load(response)['obj']
+            request = urllib.request.Request(f'http://127.0.0.1:{port}/login', data=json.dumps({'username': 'low-write-check', 'password': 'low-write-test-password'}).encode(), headers={'Content-Type': 'application/json', 'X-CSRF-Token': csrf})
+            with auth.open(request, timeout=5) as response:
+                assert json.load(response)['success'], 'Isolated test login failed'
+            probe = LiveProbe(port, '; '.join(f'{c.name}={c.value}' for c in cookies))
+            probes.append(probe)
             before = snapshot()
             files_before = durable_files()
             start = time.monotonic()
@@ -154,10 +264,13 @@ def main():
                 time.sleep(1)
             assert snapshot() == before, 'SQLite changed during disabled-stat traffic window'
             assert durable_files() == files_before, 'SQLite DB/WAL/journal bytes changed during disabled-stat traffic window'
+            assert probe.error is None, f'Live WebSocket observation failed: {probe.error}'
+            assert probe.positive_frames >= 2, 'Traffic persistence disabled the live WebSocket stream'
+            probe.close()
             stop(proc)
             assert not list(database.glob('system_metrics.gob*')), 'Metrics snapshot created'
             assert snapshot() == before, 'Shutdown changed SQLite'
-            print(f'PASS: real Xray HTTP transfers={count}, observation={args.seconds}s; SQLite unchanged; no metrics on timer/shutdown', flush=True)
+            print(f'PASS: real Xray HTTP transfers={count}, live WebSocket frames={probe.positive_frames}, observation={args.seconds}s; SQLite unchanged; no metrics on timer/shutdown', flush=True)
 
             proc = launch(False)
             for _ in range(15):
@@ -172,6 +285,8 @@ def main():
             assert not list(database.glob('system_metrics.gob*'))
             print('PASS: default inbound/outbound traffic accounting records bytes; Xray restarts and routes HTTP', flush=True)
         finally:
+            for probe in probes:
+                probe.close()
             origin.shutdown()
             for proc in processes:
                 if proc.poll() is None:

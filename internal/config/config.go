@@ -114,7 +114,8 @@ func IsMetricsPersistenceDisabled() bool {
 	return os.Getenv("XUI_DISABLE_METRICS_PERSISTENCE") == "true"
 }
 
-// IsTrafficStatsDisabled disables automatic traffic accounting, not configuration storage.
+// IsTrafficStatsDisabled disables persistent traffic accounting, not live polling
+// or configuration storage. Live deltas and online sets still reach WebSocket.
 // Set at process startup; changing it requires restarting the panel.
 func IsTrafficStatsDisabled() bool {
 	return os.Getenv("XUI_DISABLE_TRAFFIC_STATS") == "true"

@@ -73,9 +73,6 @@ func NewXrayTrafficJob() *XrayTrafficJob {
 // real-time updates over WebSocket using compact delta payloads — no REST
 // fallback, scales to 10k–20k+ clients per inbound.
 func (j *XrayTrafficJob) Run() {
-	if config.IsTrafficStatsDisabled() {
-		return
-	}
 	if !j.xrayService.IsXrayRunning() {
 		return
 	}
@@ -155,6 +152,26 @@ func (j *XrayTrafficJob) Run() {
 	if !websocket.HasClients() {
 		return
 	}
+	if config.IsTrafficStatsDisabled() {
+		// Collection and online detection are live features. Only accounting
+		// is disabled; do not replace these deltas with frozen SQLite totals.
+		lastOnline := make(map[string]int64, len(activeEmails))
+		for _, email := range activeEmails {
+			lastOnline[email] = time.Now().UnixMilli()
+		}
+		online := j.inboundService.GetOnlineClients()
+		if online == nil {
+			online = []string{}
+		}
+		websocket.BroadcastTraffic(map[string]any{
+			"traffics": traffics, "clientTraffics": movedTraffics,
+			"onlineClients":  online,
+			"onlineByGuid":   j.inboundService.GetOnlineClientsByGuid(),
+			"activeInbounds": j.inboundService.GetActiveInboundsByGuid(),
+			"lastOnlineMap":  lastOnline, "persistenceDisabled": true,
+		})
+		return
+	}
 
 	// Small installs broadcast the full snapshot (see GetAllClientTraffics for
 	// why deltas alone left UI rows stale). Above the threshold the snapshot
@@ -200,12 +217,13 @@ func (j *XrayTrafficJob) Run() {
 		onlineClients = []string{}
 	}
 	websocket.BroadcastTraffic(map[string]any{
-		"traffics":       traffics,
-		"clientTraffics": movedTraffics,
-		"onlineClients":  onlineClients,
-		"onlineByGuid":   j.inboundService.GetOnlineClientsByGuid(),
-		"activeInbounds": j.inboundService.GetActiveInboundsByGuid(),
-		"lastOnlineMap":  lastOnlineMap,
+		"traffics":            traffics,
+		"persistenceDisabled": false,
+		"clientTraffics":      movedTraffics,
+		"onlineClients":       onlineClients,
+		"onlineByGuid":        j.inboundService.GetOnlineClientsByGuid(),
+		"activeInbounds":      j.inboundService.GetActiveInboundsByGuid(),
+		"lastOnlineMap":       lastOnlineMap,
 	})
 
 	clientStatsPayload := map[string]any{"snapshot": snapshot}

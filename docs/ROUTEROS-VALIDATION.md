@@ -7,11 +7,13 @@ Xray 26.10.31 (`a4a3dff`), SQLite, отдельная временная БД.
 ## Выполнено
 
 - `npm run typecheck` и production-сборка frontend — успешно.
+- `npm run lint` и 4 компонентных теста живой истории/политик — успешно.
+- Общий запуск frontend: 1937 unit/component-тестов прошли; Storybook-тесты
+  локально не запускались из-за отсутствующего Chromium. CI устанавливает браузер.
 - Тесты навигации, sidebar и command palette — 19 тестов в 3 файлах успешно.
-- Полный `go test -count=1` для `internal/config`, `internal/xray`,
+- Полный `go test -count=1` для `internal/config`, `internal/policyrouting`, `internal/xray`,
   `internal/web/service`, `internal/web/service/outbound`, `internal/web/job`,
-  `internal/web/controller`, `internal/web`, `internal/sub` — все 8 пакетов успешно
-  в локальных проверках; после добавления теста нод пакет `job` проверен отдельно.
+  `internal/web/controller`, `internal/web`, `internal/sub` — все 9 пакетов успешно.
 - `go build -ldflags '-w -s'` — бинарник панели собран.
 - `actionlint 1.7.12` — workflow ARM64/GHCR прошёл проверку.
 - `TestDisabledMetricsPersistence` — live-история доступна, файл и `.tmp` не
@@ -90,6 +92,22 @@ fail2ban и IP-лимите блокировка лишнего IP продол�
 XUI_NODE_E2E_BINARY=/absolute/path/to/x-ui go test ./internal/nodee2e \
   -run '^TestLowWriteMasterManagesNormalNode$' -count=1 -v
 ```
+
+## Дополнение: live-поток и политики контейнера
+
+- `scripts/verify-low-write.py` дополнен авторизованным WebSocket-клиентом на
+  стандартной библиотеке Python. В течение 70 секунд настоящего HTTP-трафика
+  Xray получены 13 ненулевых live-событий при неизменных SQLite DB/WAL/journal;
+  файл метрик не появился после таймера и SIGTERM. Обычный учёт продолжает писать байты.
+- История Xray в браузере ограничена 72 точками, локальные и удалённые отсчёты
+  разделены. Проверены очистка при уходе, пометка устаревшего потока и отсутствие
+  записи в browser storage.
+- Нативные `nftables`/`iproute2` проверены внутри отдельного Linux-контейнера
+  с `--network none`, `CAP_NET_ADMIN` и IPv4 forwarding. Тест включает реальные
+  TCP/UDP-пакеты, выбор марки/таблицы, сохранение младших бит, проверку rollback,
+  пересоздание интерфейса, очистку после перезапуска и конфликты ресурсов.
+- Утилиты `ip` и `nft` добавлены только в target `routeros`. Управление политикой
+  выключено по умолчанию и требует отдельного флага и поддержки ядра.
 
 ## Границы локальной проверки
 

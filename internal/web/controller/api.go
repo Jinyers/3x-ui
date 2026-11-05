@@ -217,6 +217,7 @@ func (a *APIController) initRouter(g *gin.RouterGroup) {
 	// Nodes API — multi-panel management
 	nodes := api.Group("/nodes")
 	a.nodeController = NewNodeController(nodes)
+	NewPolicyRoutingController(api.Group("/policy-routing"))
 
 	// Hosts API — per-inbound override endpoints for subscription links
 	hosts := api.Group("/hosts")

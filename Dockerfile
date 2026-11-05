@@ -35,7 +35,7 @@ RUN go build -ldflags "-w -s" -o build/x-ui main.go \
 # RouterOS omits fail2ban and its Python dependencies. Runtime flags stay opt-in.
 FROM alpine:3.23 AS routeros
 WORKDIR /app
-RUN apk add --no-cache ca-certificates tzdata bash curl openssl
+RUN apk add --no-cache ca-certificates tzdata bash curl openssl iproute2 nftables
 COPY --from=builder /app/build/ /app/
 COPY --from=builder /app/DockerEntrypoint.sh /app/
 COPY --from=builder /app/x-ui.sh /usr/bin/x-ui

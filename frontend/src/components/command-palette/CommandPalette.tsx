@@ -80,6 +80,7 @@ export const PALETTE_KEYWORDS: Record<string, string[]> = {
   '/hosts': ['hosts', 'sni', 'domains'],
   '/outbound': ['outbounds', 'freedom', 'blackhole', 'socks', 'http', 'warp', 'nord', 'pia'],
   '/routing': ['routing', 'rules', 'geoip', 'geosite', 'direct', 'block'],
+  '/policy-routing': ['ip rule', 'ip route', 'mangle', 'tun', 'nftables', 'mark'],
   '/settings': ['settings', 'config', 'port', 'password', 'ssl', 'telegram'],
   '/xray': ['xray', 'templates', 'balancer', 'dns'],
   '/api-docs': ['api', 'api docs', 'swagger', 'rest api', 'endpoints'],

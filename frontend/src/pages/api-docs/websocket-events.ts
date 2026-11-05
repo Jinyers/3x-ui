@@ -122,6 +122,10 @@ const trafficPayloadSchema = {
   type: 'object',
   properties: {
     traffics: { type: 'array', items: { $ref: '#/components/schemas/Traffic' } },
+    persistenceDisabled: {
+      type: 'boolean',
+      description: 'Live traffic is streamed without persisting counters in SQLite.',
+    },
     clientTraffics: { type: 'array', items: { $ref: '#/components/schemas/ClientTraffic' } },
     clientTrafficSource: {
       type: 'string',

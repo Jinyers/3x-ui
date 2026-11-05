@@ -39,7 +39,7 @@ jobs:
           npm run build
       - name: Verify persistence, configuration and Xray regressions
         run: |
-          go test ./internal/config ./internal/xray ./internal/web/job ./internal/web/service ./internal/web/service/outbound ./internal/web/controller ./internal/web ./internal/sub -count=1
+          go test ./internal/config ./internal/policyrouting ./internal/xray ./internal/web/job ./internal/web/service ./internal/web/service/outbound ./internal/web/controller ./internal/web ./internal/sub -count=1
           go build -o /tmp/x-ui .
       - name: Image name
         id: image
@@ -74,6 +74,16 @@ jobs:
           sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Verify native routing in an isolated container network namespace
+        env:
+          IMAGE: ${{ steps.build.outputs.imageid }}
+        run: |
+          CGO_ENABLED=0 go test -c -o /tmp/policy-routing.test ./internal/policyrouting
+          docker run --rm --network none --cap-add NET_ADMIN \
+            --sysctl net.ipv4.ip_forward=1 \
+            --mount type=bind,src=/tmp/policy-routing.test,dst=/tmp/policy-routing.test,readonly \
+            -e XUI_NATIVE_POLICY_E2E=true --entrypoint /tmp/policy-routing.test \
+            "$IMAGE" -test.run '^TestNativePolicyRouting$' -test.v
       - name: Verify real Xray traffic and idle database before publishing
         env:
           IMAGE: ${{ steps.build.outputs.imageid }}

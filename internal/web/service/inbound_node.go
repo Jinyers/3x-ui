@@ -426,6 +426,43 @@ func (s *InboundService) GetNodeInboundTrafficTotals() (map[string][2]int64, err
 	return out, nil
 }
 
+// LiveNodeInboundTotals maps the wire snapshot to central tags without saving
+// its counters. Compatible deployed aliases are resolved like reconciliation.
+func (s *InboundService) LiveNodeInboundTotals(nodeID int, snap *runtime.TrafficSnapshot) (map[string][2]int64, error) {
+	var central []model.Inbound
+	if err := database.GetDB().Select("tag", "listen", "port", "protocol").Where("node_id = ?", nodeID).Find(&central).Error; err != nil {
+		return nil, err
+	}
+	totals := make(map[string][2]int64, len(central))
+	prefix := nodeTagPrefix(&nodeID)
+	for _, remote := range snap.Inbounds {
+		if remote == nil {
+			continue
+		}
+		var match *model.Inbound
+		for i := range central {
+			if strings.TrimPrefix(central[i].Tag, prefix) == strings.TrimPrefix(remote.Tag, prefix) {
+				match = &central[i]
+				break
+			}
+		}
+		if match == nil {
+			matches := 0
+			for i := range central {
+				if central[i].Port == remote.Port && central[i].Protocol == remote.Protocol && central[i].Listen == remote.Listen {
+					match = &central[i]
+					matches++
+				}
+			}
+			if matches != 1 {
+				continue
+			}
+		}
+		totals[match.Tag] = [2]int64{remote.Up, remote.Down}
+	}
+	return totals, nil
+}
+
 func adoptedWireChanged(c, snapIb *model.Inbound, adoptedSettings string) bool {
 	return c.Settings != adoptedSettings ||
 		c.Enable != snapIb.Enable ||

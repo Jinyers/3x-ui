@@ -86,4 +86,7 @@ func TestLowWriteNodeJobStillImportsConfiguration(t *testing.T) {
 	if changes() != before || inbounds[0].Up != 0 || ipRequests.Load() != 0 {
 		t.Fatalf("node job persisted statistics or requested IP history: changes=%d->%d up=%d IP requests=%d", before, changes(), inbounds[0].Up, ipRequests.Load())
 	}
+	if sample := j.prevInboundTotals[inbounds[0].Tag]; sample.up != 500 || sample.down != 500 {
+		t.Fatalf("live node counters were disabled with persistence: %+v", sample)
+	}
 }

@@ -362,6 +362,11 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 	_, _ = s.cron.AddJob(cadenceNodeHeartbeat, job.NewNodeHeartbeatJob())
 
 	_, _ = s.cron.AddJob(cadenceNodeTraffic, job.NewNodeTrafficSyncJob())
+	if service.PolicyRoutingEnabled() {
+		policyJob := &job.PolicyRoutingJob{}
+		_, _ = s.cron.AddJob("@every 5s", policyJob)
+		common.GoRecover("native-policy-routing", policyJob.Run)
+	}
 
 	// Outbound subscription auto-refresh (respects per-sub updateInterval)
 	_, _ = s.cron.AddJob(cadenceOutboundSub, job.NewOutboundSubscriptionJob())
