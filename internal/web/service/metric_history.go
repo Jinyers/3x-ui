@@ -305,6 +305,10 @@ func systemMetricsStorePath() string {
 // rename so a crash mid-write can't corrupt the previous snapshot. Called on a
 // timer and at shutdown.
 func PersistSystemMetrics() error {
+	// Keep the guard here to cover the timer, shutdown and future callers.
+	if config.IsMetricsPersistenceDisabled() {
+		return nil
+	}
 	path := systemMetricsStorePath()
 	tmp := path + ".tmp"
 	f, err := os.Create(tmp)

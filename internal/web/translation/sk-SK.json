@@ -121,12 +121,12 @@
     "outbounds": "Výstupy",
     "apiDocs": "Dokumentácia API",
     "donate": "Podporiť projekt",
-    "sponsors": "Sponzori",
     "docs": "Dokumentácia",
     "openMenu": "Otvoriť menu",
     "pinSidebar": "Pripnúť bočné menu",
     "unpinSidebar": "Odopnúť bočné menu",
-    "subFormats": "Formáty odberu"
+    "subFormats": "Formáty odberu",
+    "policyRouting": "Container policies"
   },
   "pages": {
     "login": {
@@ -293,7 +293,14 @@
       "importKeepHostSettings": "Ponechať nastavenia tohto servera",
       "importKeepHostSettingsDesc": "Ponechajú sa adresy počúvania, porty, základná cesta, certifikáty a identita tohto servera namiesto nastavení z nahraného súboru.",
       "logLines": "Počet riadkov",
-      "timeRange": "Časový rozsah"
+      "timeRange": "Časový rozsah",
+      "liveXrayTraffic": "Live Xray traffic",
+      "liveNow": "Live",
+      "liveWaiting": "Waiting for samples",
+      "liveBrowserHistory": "Last 72 samples, held only in this browser tab. The window is cleared when you leave the page.",
+      "liveWithoutPersistence": "Traffic persistence is disabled. Live speed and online state remain available; historical SQLite totals are frozen.",
+      "liveLocal": "This container",
+      "liveWindowVolume": "Traffic in chart window"
     },
     "inbounds": {
       "totalDownUp": "Celkom odoslané/prijaté",
@@ -2503,14 +2510,48 @@
       "routingScriptDesc": "Cesta k súboru .lua s funkciou HandleRoute, absolútna alebo vzhľadom na priečinok bin Xray. Skript vyberá každú trasu a Xray ignoruje všetky pravidlá vrátane pravidla api panelu. Vstup api preto smerujte na výstup api, inak prestanú fungovať štatistiky spotreby aj zmeny klientov za behu. Ak súbor chýba alebo je neplatný, Xray sa nespustí.",
       "routingScriptActive": "V časti {section} je nastavený skript smerovania, preto Xray tieto pravidlá ignoruje."
     },
-    "sponsors": {
-      "title": "Sponzori",
-      "intro": "Spoločnosti podporujúce vývoj 3X-UI. Sponzorované odkazy sa otvoria na novej karte.",
-      "become": "Stať sa sponzorom",
-      "tag": "Sponzor",
-      "visit": "Navštíviť",
-      "yourBrand": "Miesto pre vašu značku",
-      "yourBrandText": "Predstavte svoju spoločnosť tisícom správcov serverov, ktorí denne otvárajú 3X-UI."
+    "policy": {
+      "scope": "IPv4 policy routing inside this container",
+      "enabled": "Enabled",
+      "interfaces": "Interfaces and routes",
+      "ingress": "Default ingress",
+      "tun": "TUN",
+      "uplink": "Direct uplink",
+      "gateway": "Uplink gateway",
+      "rules": "Packet marking rules",
+      "addRule": "Add rule",
+      "name": "Name",
+      "source": "Source IPv4/CIDR",
+      "destination": "Destination IPv4/CIDR",
+      "interface": "Ingress interface",
+      "protocol": "Protocol",
+      "sourcePort": "Source port",
+      "destinationPort": "Destination port",
+      "action": "Action",
+      "direct": "Direct uplink",
+      "bypass": "Existing routing",
+      "firstMatch": "First matching enabled rule wins. Empty addresses and ports match any value. New rules start disabled. TUN and uplink must be different interfaces. Unmatched packets retain existing routing. To send all remaining traffic directly, finish with a direct-uplink rule without filters.",
+      "preview": "Preview",
+      "apply": "Apply and save",
+      "applyTitle": "Apply this container policy?",
+      "applyDetails": "Configuration is saved in SQLite only when you apply it. A failed application attempts to restore the previous policy. Selected TUN traffic is blocked while the TUN interface is unavailable.",
+      "disableDetails": "Disable marking and remove only routing objects owned by this panel.",
+      "applyFailed": "Policy could not be applied",
+      "applied": "Applied",
+      "inactive": "Not applied",
+      "waitingTun": "Waiting for TUN: selected traffic is blocked until the interface is up.",
+      "loadFailed": "Could not read policy routing state",
+      "refresh": "Refresh state",
+      "revert": "Reload saved configuration",
+      "moveUp": "Move rule up",
+      "moveDown": "Move rule down",
+      "kernelState": "Kernel routes, rules and live packet counters",
+      "tables": "Panel-owned tables: 10001 (TUN), 10002 (uplink); rule priorities: 100/101; nftables: inet xui_policy. Matching packets use the upper 16 mark bits; lower 16 bits are preserved. Main routes and unrelated firewall rules are retained.",
+      "overview": "Packets arriving from RouterOS are matched here. RouterOS mangle and routes are configured separately. Proxy connections generated inside the container are not marked.",
+      "forwarding": "net.ipv4.ip_forward is disabled inside this container. IPv4 forwarding is required for packet routing.",
+      "packets": "Packets",
+      "bytes": "Bytes",
+      "counterWindow": "Kernel counters refresh every 5 seconds, are never saved in SQLite, and reset when the policy is applied or TUN is recreated. Counters are hidden for edited rules until applied."
     }
   },
   "tgbot": {

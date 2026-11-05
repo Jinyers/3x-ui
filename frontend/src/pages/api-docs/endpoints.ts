@@ -65,6 +65,90 @@ export interface Section {
   endpoints: Endpoint[];
 }
 
+const nativePolicySchema = {
+  type: 'object',
+  required: ['enabled', 'ingress', 'tun', 'uplink', 'gateway', 'rules'],
+  properties: {
+    enabled: { type: 'boolean' },
+    ingress: {
+      type: 'string',
+      description: 'Default incoming Linux interface, distinct from TUN.',
+    },
+    tun: {
+      type: 'string',
+      description: 'Linux TUN interface. Selected traffic is unreachable while it is absent.',
+    },
+    uplink: {
+      type: 'string',
+      description: 'Linux interface for direct routing, distinct from TUN.',
+    },
+    gateway: { type: 'string', description: 'IPv4 next hop, required for an enabled direct rule.' },
+    rules: {
+      type: 'array',
+      maxItems: 128,
+      items: {
+        type: 'object',
+        required: ['enabled', 'action'],
+        properties: {
+          enabled: { type: 'boolean' },
+          name: { type: 'string', maxLength: 256 },
+          source: {
+            type: 'string',
+            description: 'IPv4 address, canonical IPv4 CIDR, or empty for any.',
+          },
+          destination: {
+            type: 'string',
+            description: 'IPv4 address, canonical IPv4 CIDR, or empty for any.',
+          },
+          interface: {
+            type: 'string',
+            description: 'Incoming interface override; empty uses ingress.',
+          },
+          protocol: { type: 'string', enum: ['', 'any', 'tcp', 'udp', 'icmp'] },
+          sourcePort: {
+            type: 'string',
+            description: 'TCP/UDP port or ascending range, for example 443 or 1000-2000.',
+          },
+          destinationPort: {
+            type: 'string',
+            description: 'TCP/UDP port or ascending range; requires tcp/udp protocol.',
+          },
+          action: {
+            type: 'string',
+            enum: ['tun', 'direct', 'bypass'],
+            description: 'First match wins. Bypass retains existing Linux routing.',
+          },
+        },
+      },
+    },
+  },
+};
+
+const nativePolicyBody = JSON.stringify(
+  {
+    enabled: false,
+    ingress: 'eth0',
+    tun: 'xray0',
+    uplink: 'eth0',
+    gateway: '172.17.0.1',
+    rules: [
+      {
+        enabled: true,
+        name: 'LAN HTTPS through TUN',
+        source: '192.168.88.0/24',
+        destination: '',
+        interface: '',
+        protocol: 'tcp',
+        sourcePort: '',
+        destinationPort: '443',
+        action: 'tun',
+      },
+    ],
+  },
+  null,
+  2,
+);
+
 // /inbounds/update replaces the whole row, so it takes the same payload as /add.
 const inboundBody =
   '{\n  "enable": true,\n  "remark": "VLESS-443",\n  "listen": "",\n  "port": 443,\n  "protocol": "vless",\n  "expiryTime": 0,\n  "total": 0,\n  "settings": {\n    "clients": [{ "id": "...", "email": "user1" }],\n    "decryption": "none",\n    "fallbacks": []\n  },\n  "streamSettings": {\n    "network": "tcp",\n    "security": "reality",\n    "realitySettings": { "show": false, "dest": "..." }\n  },\n  "sniffing": {\n    "enabled": true,\n    "destOverride": ["http", "tls"]\n  }\n}';
@@ -235,13 +319,6 @@ export const sections: readonly Section[] = [
         summary:
           'Mint a CSRF token for the current session. The SPA replays it in the X-CSRF-Token header on unsafe requests. Bearer-token callers can skip this — the middleware short-circuits CSRF for authenticated API requests.',
         response: '{\n  "success": true,\n  "obj": "csrf-token-string"\n}',
-      },
-      {
-        method: 'GET',
-        path: '/sponsors',
-        summary:
-          'Public. Active paid sponsor placements read from the project sponsors.json (cached for 1h); entries outside their from/until window are dropped. Logos are proxied by the panel at /sponsors/logo/{name}. Used by the login page and panel sponsor slots.',
-        responseSchema: 'SponsorList',
       },
       {
         method: 'POST',
@@ -1693,6 +1770,60 @@ export const sections: readonly Section[] = [
     ],
   },
 
+  {
+    id: 'policy-routing',
+    title: 'Container policy routing',
+    description:
+      'Administrator-only IPv4 policy routing in the panel container network namespace. Requires XUI_ENABLE_POLICY_ROUTING=true, CAP_NET_ADMIN, iproute2, nftables, and IPv4 forwarding. RouterOS is configured separately. Only panel-owned route tables 10001/10002, rule priorities 100/101 and nft table inet xui_policy are managed.',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/panel/api/policy-routing',
+        summary:
+          'Read saved policy, readiness, interfaces and current kernel rules/routes/counters. Does not write settings or apply changes.',
+        responseObjectSchema: {
+          type: 'object',
+          required: ['enabledByEnv', 'config', 'state'],
+          properties: {
+            enabledByEnv: { type: 'boolean' },
+            config: nativePolicySchema,
+            state: {
+              type: 'object',
+              properties: {
+                ready: { type: 'boolean' },
+                applied: { type: 'boolean' },
+                waitingForTun: { type: 'boolean' },
+                forwardingEnabled: { type: 'boolean' },
+                error: { type: 'string' },
+                interfaces: { type: 'array', items: { type: 'string' } },
+                ipRules: { type: 'array', items: { type: 'object', additionalProperties: true } },
+                ipRoutes: { type: 'array', items: { type: 'object', additionalProperties: true } },
+                nft: { type: 'object', additionalProperties: true },
+              },
+            },
+          },
+        },
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/policy-routing/preview',
+        summary:
+          'Validate policy and return the final nftables transaction as text. Executes no commands and does not save configuration.',
+        requestSchema: nativePolicySchema,
+        body: nativePolicyBody,
+        responseObjectSchema: { type: 'string' },
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/policy-routing/apply',
+        summary:
+          'Validate kernel support and resource ownership, save desired policy, then apply. Failed application attempts kernel/config rollback. Active policies are restored after restart or TUN recreation without periodic SQLite writes. Ongoing proxy connections are not packet-marked by this feature.',
+        requestSchema: nativePolicySchema,
+        body: nativePolicyBody,
+        response: '{"success":true,"msg":"","obj":null}',
+      },
+    ],
+  },
   {
     id: 'nodes',
     title: 'Nodes',

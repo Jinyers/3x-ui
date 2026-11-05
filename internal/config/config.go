@@ -109,6 +109,18 @@ func IsSkipHSTS() bool {
 	return os.Getenv("XUI_SKIP_HSTS") == "true"
 }
 
+// IsMetricsPersistenceDisabled leaves live system metrics and in-memory history enabled.
+func IsMetricsPersistenceDisabled() bool {
+	return os.Getenv("XUI_DISABLE_METRICS_PERSISTENCE") == "true"
+}
+
+// IsTrafficStatsDisabled disables persistent traffic accounting, not live polling
+// or configuration storage. Live deltas and online sets still reach WebSocket.
+// Set at process startup; changing it requires restarting the panel.
+func IsTrafficStatsDisabled() bool {
+	return os.Getenv("XUI_DISABLE_TRAFFIC_STATS") == "true"
+}
+
 func GetPortOverride() (port int, configured bool, err error) {
 	value, ok := os.LookupEnv("XUI_PORT")
 	if !ok || strings.TrimSpace(value) == "" {

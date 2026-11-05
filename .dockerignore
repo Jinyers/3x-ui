@@ -8,3 +8,24 @@ pgdata
 x-ui/
 *.db
 *.dump
+**/*.db
+**/*.db-*
+**/*.sqlite*
+**/*.gob
+**/*.gob.tmp
+**/.env
+**/.env.*
+**/*.pem
+# Public verification key embedded by internal/pia; this is source, not a secret.
+!internal/pia/trust/serverlist_public_key.pem
+**/*.key
+**/node_token_key.json
+.aws
+.ssh
+.codex
+.agents
+secrets
+backup
+log
+logs
+**/tuic-traffic-journal

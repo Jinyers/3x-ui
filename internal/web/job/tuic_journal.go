@@ -73,6 +73,9 @@ func storeTuicBatch(batch tuicTrafficBatch) (string, error) {
 }
 
 func (j *TuicJob) replayTuicJournal() error {
+	if config.IsTrafficStatsDisabled() {
+		return nil // Retain any pre-existing journal for a later accounting-enabled start.
+	}
 	entries, err := os.ReadDir(tuicJournalDir())
 	if os.IsNotExist(err) {
 		return nil
@@ -110,6 +113,9 @@ func (j *TuicJob) replayTuicJournal() error {
 }
 
 func (j *TuicJob) flushTuicJournal() error {
+	if config.IsTrafficStatsDisabled() {
+		return nil
+	}
 	tuicJournalMu.Lock()
 	defer tuicJournalMu.Unlock()
 	manager := tuic.GetManager()

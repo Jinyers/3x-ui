@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/crypto/nodetoken"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
@@ -131,6 +132,7 @@ func (s *NodeService) GetAll() ([]*model.Node, error) {
 		return nodes, err
 	}
 	for _, n := range nodes {
+		applyVolatileHeartbeat(db, n)
 		decryptToken(n)
 	}
 
@@ -359,6 +361,7 @@ func (s *NodeService) GetById(id int) (*model.Node, error) {
 	if err := db.Model(model.Node{}).Where("id = ?", id).First(n).Error; err != nil {
 		return nil, err
 	}
+	applyVolatileHeartbeat(db, n)
 	decryptToken(n)
 	return n, nil
 }
@@ -559,6 +562,7 @@ func (s *NodeService) Update(id int, in *model.Node) error {
 	}); err != nil {
 		return err
 	}
+	forgetVolatileHeartbeat(db, id)
 	if mgr := runtime.GetManager(); mgr != nil {
 		mgr.InvalidateNode(id)
 	}
@@ -882,6 +886,7 @@ func (s *NodeService) Delete(id int) error {
 	}); err != nil {
 		return err
 	}
+	forgetVolatileHeartbeat(db, id)
 	if mgr := runtime.GetManager(); mgr != nil {
 		mgr.InvalidateNode(id)
 	}
@@ -1010,8 +1015,22 @@ func (s *NodeService) UpdateHeartbeat(id int, p HeartbeatPatch) error {
 		updates["guid"] = p.Guid
 		s.warnOnDuplicateGuid(id, p.Guid)
 	}
-	if err := db.Model(model.Node{}).Where("id = ?", id).Updates(updates).Error; err != nil {
-		return err
+	if config.IsMetricsPersistenceDisabled() {
+		// Persist identity and health transitions, not a new metric sample
+		// every probe. Readers overlay the latest observations from memory.
+		var err error
+		updates, err = changedHeartbeatState(db, id, p)
+		if err != nil {
+			return err
+		}
+	}
+	if len(updates) > 0 {
+		if err := db.Model(model.Node{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+			return err
+		}
+	}
+	if config.IsMetricsPersistenceDisabled() {
+		rememberVolatileHeartbeat(db, id, p)
 	}
 	if p.Status == "online" {
 		now := time.Unix(p.LastHeartbeat, 0)

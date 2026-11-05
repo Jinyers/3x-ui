@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -18,6 +19,9 @@ const globalTrafficHeartbeatInterval = time.Hour
 // AcceptGlobalTraffic overwrites hosted clients' per-master usage, including lower resets.
 // Identical usage refreshes hourly; client_traffics remains local-only for delta accounting.
 func (s *InboundService) AcceptGlobalTraffic(masterGuid string, traffics []*xray.ClientTraffic) error {
+	if config.IsTrafficStatsDisabled() {
+		return nil
+	}
 	masterGuid = strings.TrimSpace(masterGuid)
 	if masterGuid == "" || len(masterGuid) > maxPanelGuidLen {
 		return nil

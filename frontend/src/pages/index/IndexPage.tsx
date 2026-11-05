@@ -22,13 +22,13 @@ import { useStatusQuery } from '@/api/queries/useStatusQuery';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import AppSidebar from '@/layouts/AppSidebar';
 import { LazyMount } from '@/components/utility';
-import SponsorSlot from '@/components/sponsor/SponsorSlot';
 import { setMessageInstance } from '@/utils/messageBus';
 import OverviewActionBar from './OverviewActionBar';
 import VitalTile from './VitalTile';
 import ThroughputCard from './ThroughputCard';
 import ConnectionsCard from './ConnectionsCard';
 import SystemStrip from './SystemStrip';
+import LiveTrafficCard from './LiveTrafficCard';
 import { mean, peak, useOverviewHistory } from './useOverviewHistory';
 import type { PanelUpdateInfo } from './PanelUpdateModal';
 const JsonEditor = lazy(() => import('@/components/form/JsonEditor'));
@@ -215,8 +215,6 @@ export default function IndexPage() {
                     onOpenVersionSwitch={() => setVersionOpen(true)}
                   />
 
-                  <SponsorSlot slot="dashboard" />
-
                   {health && (
                     <div className="ov-health" style={{ color: health.color }}>
                       <span className="ov-health-mark" />
@@ -296,6 +294,7 @@ export default function IndexPage() {
                     />
                   </div>
 
+                  <LiveTrafficCard />
                   <SystemStrip
                     status={status}
                     showIp={showIp}

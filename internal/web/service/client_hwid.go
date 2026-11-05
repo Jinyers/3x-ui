@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -128,6 +129,11 @@ func (s *ClientService) EnforceHwidForSubID(subID string, req HwidRequest) (Hwid
 	}
 	req = normalizeHwidRequest(req)
 	if limit <= 0 {
+		// With no limit, device history is optional statistics. An explicit
+		// limit still uses the normal gate, including its transaction recheck.
+		if config.IsTrafficStatsDisabled() {
+			return HwidGateResult{Allowed: true}, nil
+		}
 		if len(req.Hwid) < minHwidLength {
 			return HwidGateResult{Allowed: true}, nil
 		}

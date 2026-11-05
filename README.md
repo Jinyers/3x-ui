@@ -26,6 +26,9 @@ Built as an enhanced fork of the original X-UI project, 3X-UI adds broader proto
 
 ## Features
 
+This fork includes an optional RouterOS ARM64 low-write mode and an ad-free panel.
+See [RouterOS setup, GHCR builds and upstream maintenance](docs/ROUTEROS.md).
+
 - **Multi-protocol inbounds** — VLESS, VMess, Trojan, Shadowsocks, WireGuard, AmneziaWG, TUIC v5, Hysteria2, MTProto, HTTP, SOCKS (Mixed), Dokodemo-door / Tunnel, and TUN.
 - **Modern transports & security** — TCP (Raw), mKCP, WebSocket, gRPC, HTTPUpgrade, and XHTTP, secured with TLS, XTLS, and REALITY.
 - **AmneziaWG built in** — DPI-resistant WireGuard runs inside the panel on a userspace network stack, with no kernel module, DKMS, or extra packages to install.

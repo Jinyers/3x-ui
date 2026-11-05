@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/netsafe"
@@ -100,11 +101,13 @@ func (a *ServerController) startTask() {
 		a.xrayMetricsService.Sample(time.Now())
 		websocket.BroadcastStatus(status)
 	})
-	_, _ = c.AddFunc("@every 1m", func() {
-		if err := service.PersistSystemMetrics(); err != nil {
-			logger.Warning("persist system metrics failed:", err)
-		}
-	})
+	if !config.IsMetricsPersistenceDisabled() {
+		_, _ = c.AddFunc("@every 1m", func() {
+			if err := service.PersistSystemMetrics(); err != nil {
+				logger.Warning("persist system metrics failed:", err)
+			}
+		})
+	}
 }
 
 // status returns the current server status information.

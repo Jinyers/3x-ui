@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawgkern"
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -56,6 +57,12 @@ func NewCheckClientIpJob() *CheckClientIpJob {
 }
 
 func (j *CheckClientIpJob) Run() {
+	// IP history is another periodic statistics writer, even with fail2ban off.
+	// Keep scans needed by enabled IP limits, but skip collection-only scans in
+	// low-write mode before pruning, polling the core or opening a transaction.
+	if config.IsTrafficStatsDisabled() && (!isFail2BanEnabled() || !j.hasLimitIp()) {
+		return
+	}
 	j.pruneStaleIpRows()
 	observed, apiMode := j.collectFromOnlineAPI()
 	// Kernel-mode AmneziaWG peers never reach Xray, so its online users cannot

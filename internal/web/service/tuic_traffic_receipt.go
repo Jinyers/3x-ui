@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/xray"
@@ -14,6 +15,9 @@ import (
 // AddTuicTrafficBatch commits a journal batch and its receipt atomically. A
 // retained journal can therefore be replayed after an ambiguous commit result.
 func (s *InboundService) AddTuicTrafficBatch(id string, traffic []*xray.ClientTraffic) error {
+	if config.IsTrafficStatsDisabled() {
+		return nil
+	}
 	if id == "" {
 		return errors.New("TUIC traffic batch has no ID")
 	}

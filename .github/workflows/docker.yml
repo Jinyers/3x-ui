@@ -1,62 +1,127 @@
-name: Release 3X-UI for Docker
-
-permissions:
-  contents: read
-  packages: write
+name: RouterOS ARM64 image
 
 on:
   workflow_dispatch:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main, "feat/routeros-*"]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: routeros-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
         with:
-          submodules: true
-
-      - name: Docker meta
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend and verify types
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+      - name: Verify persistence, configuration and Xray regressions
+        run: |
+          go test ./internal/config ./internal/policyrouting ./internal/xray ./internal/web/job ./internal/web/service ./internal/web/service/outbound ./internal/web/controller ./internal/web ./internal/sub -count=1
+          go build -o /tmp/x-ui .
+      - name: Image name
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@v6
         id: meta
-        uses: docker/metadata-action@v6
         with:
-          images: |
-            hsanaeii/3x-ui
-            ghcr.io/mhsanaei/3x-ui
+          images: ${{ steps.image.outputs.name }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
-      - name: Login to GHCR
-        uses: docker/login-action@v4
+            type=raw,value=routeros-arm64,enable={{is_default_branch}}
+            type=sha,prefix=routeros-arm64-
+            type=ref,event=tag,suffix=-routeros-arm64
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@v7
+        id: build
         with:
           context: .
-          push: true
-          provenance: mode=max
-          sbom: true
-          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7,linux/arm/v6,linux/386
+          target: routeros
+          platforms: linux/arm64
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Verify native routing in an isolated container network namespace
+        env:
+          IMAGE: ${{ steps.build.outputs.imageid }}
+        run: |
+          CGO_ENABLED=0 go test -c -o /tmp/policy-routing.test ./internal/policyrouting
+          docker run --rm --network none --cap-add NET_ADMIN \
+            --sysctl net.ipv4.ip_forward=1 \
+            --mount type=bind,src=/tmp/policy-routing.test,dst=/tmp/policy-routing.test,readonly \
+            -e XUI_NATIVE_POLICY_E2E=true --entrypoint /tmp/policy-routing.test \
+            "$IMAGE" -test.run '^TestNativePolicyRouting$' -test.v
+      - name: Verify real Xray traffic and idle database before publishing
+        env:
+          IMAGE: ${{ steps.build.outputs.imageid }}
+        run: |
+          container=$(docker create "$IMAGE")
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          docker cp "$container:/app/bin" /tmp/xui-assets
+          python3 scripts/verify-low-write.py --panel /tmp/x-ui --assets /tmp/xui-assets
+          docker rm "$container"
+          trap - EXIT
+      - name: Verify container startup
+        env:
+          IMAGE: ${{ steps.build.outputs.imageid }}
+        run: |
+          docker run -d --name xui-image-smoke -p 127.0.0.1:2053:2053 \
+            -e XUI_DISABLE_METRICS_PERSISTENCE=true \
+            -e XUI_DISABLE_TRAFFIC_STATS=true "$IMAGE"
+          trap 'docker rm -f xui-image-smoke >/dev/null 2>&1 || true' EXIT
+          curl --fail --connect-timeout 2 --max-time 5 --retry 20 --retry-all-errors --retry-delay 1 http://127.0.0.1:2053/ -o /dev/null
+          sleep 3
+          docker stop -t 30 xui-image-smoke
+          test "$(docker inspect --format '{{.State.ExitCode}}' xui-image-smoke)" = 0
+      - name: Publish verified ARM64 image
+        uses: docker/build-push-action@v7
+        id: publish
+        if: github.event_name != 'pull_request'
+        with:
+          context: .
+          target: routeros
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
+      - name: Published image
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: echo "ARM64 image — $IMAGE@$DIGEST" >> "$GITHUB_STEP_SUMMARY"

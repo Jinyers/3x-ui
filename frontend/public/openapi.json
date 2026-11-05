@@ -4664,90 +4664,6 @@
         ],
         "type": "object"
       },
-      "Sponsor": {
-        "description": "Sponsor is one paid placement published in the repo's sponsors.json.",
-        "properties": {
-          "enable": {
-            "example": true,
-            "nullable": true,
-            "type": "boolean"
-          },
-          "from": {
-            "example": "2026-10-01T00:00:00Z",
-            "format": "date-time",
-            "nullable": true,
-            "type": "string"
-          },
-          "id": {
-            "example": "acme-2026-10",
-            "type": "string"
-          },
-          "link": {
-            "example": "https://acme.example/?utm_source=3x-ui",
-            "type": "string"
-          },
-          "logo": {
-            "example": "/sponsors/logo/acme.png",
-            "type": "string"
-          },
-          "name": {
-            "example": "Acme VPS",
-            "type": "string"
-          },
-          "slots": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "text": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object"
-          },
-          "title": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object"
-          },
-          "until": {
-            "example": "2026-11-01T00:00:00Z",
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "link",
-          "name",
-          "slots",
-          "text",
-          "title",
-          "until"
-        ],
-        "type": "object"
-      },
-      "SponsorList": {
-        "description": "SponsorList is the active sponsor set plus the contact link for new sponsors.",
-        "properties": {
-          "contact": {
-            "example": "https://t.me/example",
-            "type": "string"
-          },
-          "sponsors": {
-            "items": {
-              "$ref": "#/components/schemas/Sponsor"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "sponsors"
-        ],
-        "type": "object"
-      },
       "SubBalancer": {
         "description": "SubBalancer is one extra JSON-subscription config document whose members are\nthe selected inbounds' proxy outbounds. SortOrder shares SubSortIndex semantics.",
         "properties": {
@@ -5036,6 +4952,10 @@
       "description": "Manage clients as first-class entities that can be attached to one or more inbounds. A single client row drives the settings.clients entry in every inbound it belongs to. Endpoints live under /panel/api/clients."
     },
     {
+      "name": "Container policy routing",
+      "description": "Administrator-only IPv4 policy routing in the panel container network namespace. Requires XUI_ENABLE_POLICY_ROUTING=true, CAP_NET_ADMIN, iproute2, nftables, and IPv4 forwarding. RouterOS is configured separately. Only panel-owned route tables 10001/10002, rule priorities 100/101 and nft table inet xui_policy are managed."
+    },
+    {
       "name": "Nodes",
       "description": "Manage remote 3x-ui panels acting as nodes for a central panel. All endpoints under /panel/api/nodes."
     },
@@ -5222,60 +5142,6 @@
                 "example": {
                   "success": true,
                   "obj": "csrf-token-string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/sponsors": {
-      "get": {
-        "tags": [
-          "Authentication"
-        ],
-        "summary": "Public. Active paid sponsor placements read from the project sponsors.json (cached for 1h); entries outside their from/until window are dropped. Logos are proxied by the panel at /sponsors/logo/{name}. Used by the login page and panel sponsor slots.",
-        "operationId": "get_sponsors",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean"
-                    },
-                    "msg": {
-                      "type": "string"
-                    },
-                    "obj": {
-                      "$ref": "#/components/schemas/SponsorList"
-                    }
-                  }
-                },
-                "example": {
-                  "success": true,
-                  "obj": {
-                    "contact": "https://t.me/example",
-                    "sponsors": [
-                      {
-                        "enable": true,
-                        "from": "2026-10-01T00:00:00Z",
-                        "id": "acme-2026-10",
-                        "link": "https://acme.example/?utm_source=3x-ui",
-                        "logo": "/sponsors/logo/acme.png",
-                        "name": "Acme VPS",
-                        "slots": [
-                          ""
-                        ],
-                        "text": {},
-                        "title": {},
-                        "until": "2026-11-01T00:00:00Z"
-                      }
-                    ]
-                  }
                 }
               }
             }
@@ -11230,6 +11096,486 @@
         }
       }
     },
+    "/panel/api/policy-routing": {
+      "get": {
+        "tags": [
+          "Container policy routing"
+        ],
+        "summary": "Read saved policy, readiness, interfaces and current kernel rules/routes/counters. Does not write settings or apply changes.",
+        "operationId": "get_panel_api_policy_routing",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "type": "object",
+                      "required": [
+                        "enabledByEnv",
+                        "config",
+                        "state"
+                      ],
+                      "properties": {
+                        "enabledByEnv": {
+                          "type": "boolean"
+                        },
+                        "config": {
+                          "type": "object",
+                          "required": [
+                            "enabled",
+                            "ingress",
+                            "tun",
+                            "uplink",
+                            "gateway",
+                            "rules"
+                          ],
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "ingress": {
+                              "type": "string",
+                              "description": "Default incoming Linux interface, distinct from TUN."
+                            },
+                            "tun": {
+                              "type": "string",
+                              "description": "Linux TUN interface. Selected traffic is unreachable while it is absent."
+                            },
+                            "uplink": {
+                              "type": "string",
+                              "description": "Linux interface for direct routing, distinct from TUN."
+                            },
+                            "gateway": {
+                              "type": "string",
+                              "description": "IPv4 next hop, required for an enabled direct rule."
+                            },
+                            "rules": {
+                              "type": "array",
+                              "maxItems": 128,
+                              "items": {
+                                "type": "object",
+                                "required": [
+                                  "enabled",
+                                  "action"
+                                ],
+                                "properties": {
+                                  "enabled": {
+                                    "type": "boolean"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "maxLength": 256
+                                  },
+                                  "source": {
+                                    "type": "string",
+                                    "description": "IPv4 address, canonical IPv4 CIDR, or empty for any."
+                                  },
+                                  "destination": {
+                                    "type": "string",
+                                    "description": "IPv4 address, canonical IPv4 CIDR, or empty for any."
+                                  },
+                                  "interface": {
+                                    "type": "string",
+                                    "description": "Incoming interface override; empty uses ingress."
+                                  },
+                                  "protocol": {
+                                    "type": "string",
+                                    "enum": [
+                                      "",
+                                      "any",
+                                      "tcp",
+                                      "udp",
+                                      "icmp"
+                                    ]
+                                  },
+                                  "sourcePort": {
+                                    "type": "string",
+                                    "description": "TCP/UDP port or ascending range, for example 443 or 1000-2000."
+                                  },
+                                  "destinationPort": {
+                                    "type": "string",
+                                    "description": "TCP/UDP port or ascending range; requires tcp/udp protocol."
+                                  },
+                                  "action": {
+                                    "type": "string",
+                                    "enum": [
+                                      "tun",
+                                      "direct",
+                                      "bypass"
+                                    ],
+                                    "description": "First match wins. Bypass retains existing Linux routing."
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "state": {
+                          "type": "object",
+                          "properties": {
+                            "ready": {
+                              "type": "boolean"
+                            },
+                            "applied": {
+                              "type": "boolean"
+                            },
+                            "waitingForTun": {
+                              "type": "boolean"
+                            },
+                            "forwardingEnabled": {
+                              "type": "boolean"
+                            },
+                            "error": {
+                              "type": "string"
+                            },
+                            "interfaces": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "ipRules": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                              }
+                            },
+                            "ipRoutes": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                              }
+                            },
+                            "nft": {
+                              "type": "object",
+                              "additionalProperties": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/policy-routing/preview": {
+      "post": {
+        "tags": [
+          "Container policy routing"
+        ],
+        "summary": "Validate policy and return the final nftables transaction as text. Executes no commands and does not save configuration.",
+        "operationId": "post_panel_api_policy_routing_preview",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "ingress",
+                  "tun",
+                  "uplink",
+                  "gateway",
+                  "rules"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "ingress": {
+                    "type": "string",
+                    "description": "Default incoming Linux interface, distinct from TUN."
+                  },
+                  "tun": {
+                    "type": "string",
+                    "description": "Linux TUN interface. Selected traffic is unreachable while it is absent."
+                  },
+                  "uplink": {
+                    "type": "string",
+                    "description": "Linux interface for direct routing, distinct from TUN."
+                  },
+                  "gateway": {
+                    "type": "string",
+                    "description": "IPv4 next hop, required for an enabled direct rule."
+                  },
+                  "rules": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "enabled",
+                        "action"
+                      ],
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "name": {
+                          "type": "string",
+                          "maxLength": 256
+                        },
+                        "source": {
+                          "type": "string",
+                          "description": "IPv4 address, canonical IPv4 CIDR, or empty for any."
+                        },
+                        "destination": {
+                          "type": "string",
+                          "description": "IPv4 address, canonical IPv4 CIDR, or empty for any."
+                        },
+                        "interface": {
+                          "type": "string",
+                          "description": "Incoming interface override; empty uses ingress."
+                        },
+                        "protocol": {
+                          "type": "string",
+                          "enum": [
+                            "",
+                            "any",
+                            "tcp",
+                            "udp",
+                            "icmp"
+                          ]
+                        },
+                        "sourcePort": {
+                          "type": "string",
+                          "description": "TCP/UDP port or ascending range, for example 443 or 1000-2000."
+                        },
+                        "destinationPort": {
+                          "type": "string",
+                          "description": "TCP/UDP port or ascending range; requires tcp/udp protocol."
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "tun",
+                            "direct",
+                            "bypass"
+                          ],
+                          "description": "First match wins. Bypass retains existing Linux routing."
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "example": {
+                "enabled": false,
+                "ingress": "eth0",
+                "tun": "xray0",
+                "uplink": "eth0",
+                "gateway": "172.17.0.1",
+                "rules": [
+                  {
+                    "enabled": true,
+                    "name": "LAN HTTPS through TUN",
+                    "source": "192.168.88.0/24",
+                    "destination": "",
+                    "interface": "",
+                    "protocol": "tcp",
+                    "sourcePort": "",
+                    "destinationPort": "443",
+                    "action": "tun"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/policy-routing/apply": {
+      "post": {
+        "tags": [
+          "Container policy routing"
+        ],
+        "summary": "Validate kernel support and resource ownership, save desired policy, then apply. Failed application attempts kernel/config rollback. Active policies are restored after restart or TUN recreation without periodic SQLite writes. Ongoing proxy connections are not packet-marked by this feature.",
+        "operationId": "post_panel_api_policy_routing_apply",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "ingress",
+                  "tun",
+                  "uplink",
+                  "gateway",
+                  "rules"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "ingress": {
+                    "type": "string",
+                    "description": "Default incoming Linux interface, distinct from TUN."
+                  },
+                  "tun": {
+                    "type": "string",
+                    "description": "Linux TUN interface. Selected traffic is unreachable while it is absent."
+                  },
+                  "uplink": {
+                    "type": "string",
+                    "description": "Linux interface for direct routing, distinct from TUN."
+                  },
+                  "gateway": {
+                    "type": "string",
+                    "description": "IPv4 next hop, required for an enabled direct rule."
+                  },
+                  "rules": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "enabled",
+                        "action"
+                      ],
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "name": {
+                          "type": "string",
+                          "maxLength": 256
+                        },
+                        "source": {
+                          "type": "string",
+                          "description": "IPv4 address, canonical IPv4 CIDR, or empty for any."
+                        },
+                        "destination": {
+                          "type": "string",
+                          "description": "IPv4 address, canonical IPv4 CIDR, or empty for any."
+                        },
+                        "interface": {
+                          "type": "string",
+                          "description": "Incoming interface override; empty uses ingress."
+                        },
+                        "protocol": {
+                          "type": "string",
+                          "enum": [
+                            "",
+                            "any",
+                            "tcp",
+                            "udp",
+                            "icmp"
+                          ]
+                        },
+                        "sourcePort": {
+                          "type": "string",
+                          "description": "TCP/UDP port or ascending range, for example 443 or 1000-2000."
+                        },
+                        "destinationPort": {
+                          "type": "string",
+                          "description": "TCP/UDP port or ascending range; requires tcp/udp protocol."
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "tun",
+                            "direct",
+                            "bypass"
+                          ],
+                          "description": "First match wins. Bypass retains existing Linux routing."
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "example": {
+                "enabled": false,
+                "ingress": "eth0",
+                "tun": "xray0",
+                "uplink": "eth0",
+                "gateway": "172.17.0.1",
+                "rules": [
+                  {
+                    "enabled": true,
+                    "name": "LAN HTTPS through TUN",
+                    "source": "192.168.88.0/24",
+                    "destination": "",
+                    "interface": "",
+                    "protocol": "tcp",
+                    "sourcePort": "",
+                    "destinationPort": "443",
+                    "action": "tun"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "msg": "",
+                  "obj": null
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/nodes/list": {
       "get": {
         "tags": [
@@ -16538,6 +16884,10 @@
                   "items": {
                     "$ref": "#/components/schemas/Traffic"
                   }
+                },
+                "persistenceDisabled": {
+                  "type": "boolean",
+                  "description": "Live traffic is streamed without persisting counters in SQLite."
                 },
                 "clientTraffics": {
                   "type": "array",

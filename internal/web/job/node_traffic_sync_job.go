@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
@@ -55,6 +56,8 @@ type NodeTrafficSyncJob struct {
 	// a per-inbound speed delta — node inbounds have no local Xray poll. Touched
 	// only from Run (serialized).
 	prevInboundTotals map[string]inboundSample
+	liveTotalsMu      sync.Mutex
+	liveTotals        map[int]map[string][2]int64
 }
 
 type atomicBool struct {
@@ -97,6 +100,17 @@ func (j *NodeTrafficSyncJob) Run() {
 		return
 	}
 	j.inboundService.RetainSyncedNodeOnlineClients(nodes)
+	j.liveTotalsMu.Lock()
+	retained := make(map[int]bool, len(nodes))
+	for _, node := range nodes {
+		retained[node.Id] = node.Enable && node.Status == "online"
+	}
+	for id := range j.liveTotals {
+		if !retained[id] {
+			delete(j.liveTotals, id)
+		}
+	}
+	j.liveTotalsMu.Unlock()
 	if len(nodes) == 0 {
 		return
 	}
@@ -166,6 +180,27 @@ func (j *NodeTrafficSyncJob) Run() {
 	if !websocket.HasClients() {
 		return
 	}
+	if config.IsTrafficStatsDisabled() {
+		lastOnline := make(map[string]int64, len(activeEmails))
+		for _, email := range activeEmails {
+			lastOnline[email] = time.Now().UnixMilli()
+		}
+		online := j.inboundService.GetOnlineClients()
+		if online == nil {
+			online = []string{}
+		}
+		websocket.BroadcastTraffic(map[string]any{
+			"nodeTraffics": inboundSpeed, "onlineClients": online,
+			"onlineByGuid":   j.inboundService.GetOnlineClientsByGuid(),
+			"activeInbounds": j.inboundService.GetActiveInboundsByGuid(),
+			"lastOnlineMap":  lastOnline, "persistenceDisabled": true,
+		})
+		if j.structural.takeAndReset() {
+			websocket.BroadcastInvalidate(websocket.MessageTypeInbounds)
+			websocket.BroadcastInvalidate(websocket.MessageTypeClients)
+		}
+		return
+	}
 
 	// Same snapshot-vs-delta split as the local traffic job: above the
 	// threshold a full snapshot would be dropped by the hub's payload cap, so
@@ -211,10 +246,11 @@ func (j *NodeTrafficSyncJob) Run() {
 		online = []string{}
 	}
 	trafficPayload := map[string]any{
-		"onlineClients":  online,
-		"onlineByGuid":   j.inboundService.GetOnlineClientsByGuid(),
-		"activeInbounds": j.inboundService.GetActiveInboundsByGuid(),
-		"lastOnlineMap":  lastOnline,
+		"persistenceDisabled": false,
+		"onlineClients":       online,
+		"onlineByGuid":        j.inboundService.GetOnlineClientsByGuid(),
+		"activeInbounds":      j.inboundService.GetActiveInboundsByGuid(),
+		"lastOnlineMap":       lastOnline,
 	}
 	// Always send the key so the dashboard clears node inbounds that went idle
 	// this tick. A nil result (query error) marshals to null and is skipped
@@ -254,9 +290,22 @@ func (j *NodeTrafficSyncJob) Run() {
 // rebaselines to the lower value; a first-seen tag yields no delta until the
 // next poll.
 func (j *NodeTrafficSyncJob) nodeInboundSpeed() []*xray.Traffic {
-	totals, err := j.inboundService.GetNodeInboundTrafficTotals()
-	if err != nil {
-		return nil
+	var totals map[string][2]int64
+	if config.IsTrafficStatsDisabled() {
+		totals = make(map[string][2]int64)
+		j.liveTotalsMu.Lock()
+		for _, nodeTotals := range j.liveTotals {
+			for tag, total := range nodeTotals {
+				totals[tag] = total
+			}
+		}
+		j.liveTotalsMu.Unlock()
+	} else {
+		var err error
+		totals, err = j.inboundService.GetNodeInboundTrafficTotals()
+		if err != nil {
+			return nil
+		}
 	}
 	now := time.Now().UnixMilli()
 	deltas := make([]*xray.Traffic, 0, len(totals))
@@ -304,6 +353,9 @@ func (j *NodeTrafficSyncJob) nodeInboundSpeed() []*xray.Traffic {
 // per node to the clients that node actually hosts, and throttled — the
 // aggregates only need to reach nodes on a human timescale, not every poll.
 func (j *NodeTrafficSyncJob) maybePushGlobals(mgr *runtime.Manager, nodes []*model.Node) {
+	if config.IsTrafficStatsDisabled() {
+		return
+	}
 	j.globalPushMu.Lock()
 	now := time.Now().Unix()
 	if now-j.lastGlobalPush < int64(nodeGlobalPushInterval/time.Second) {
@@ -402,6 +454,9 @@ func (j *NodeTrafficSyncJob) syncOne(mgr *runtime.Manager, n *model.Node, doIpSy
 	snap, err := rt.FetchTrafficSnapshot(ctx)
 	if err != nil {
 		logger.Warningf("node traffic sync: fetch from %s failed: %v", n.Name, err)
+		j.liveTotalsMu.Lock()
+		delete(j.liveTotals, n.Id)
+		j.liveTotalsMu.Unlock()
 		j.inboundService.ClearNodeOnlineClients(n.Id)
 		return nil
 	}
@@ -426,7 +481,23 @@ func (j *NodeTrafficSyncJob) syncOne(mgr *runtime.Manager, n *model.Node, doIpSy
 	changed, err := j.inboundService.SetRemoteTraffic(n.Id, snap, dirty, justPushed)
 	if err != nil {
 		logger.Warningf("node traffic sync: merge for %s failed: %v", n.Name, err)
+		j.liveTotalsMu.Lock()
+		delete(j.liveTotals, n.Id)
+		j.liveTotalsMu.Unlock()
 		return nil
+	}
+	if config.IsTrafficStatsDisabled() {
+		totals, err := j.inboundService.LiveNodeInboundTotals(n.Id, snap)
+		if err != nil {
+			logger.Warningf("node traffic sync: live totals for %s failed: %v", n.Name, err)
+		} else {
+			j.liveTotalsMu.Lock()
+			if j.liveTotals == nil {
+				j.liveTotals = make(map[int]map[string][2]int64)
+			}
+			j.liveTotals[n.Id] = totals
+			j.liveTotalsMu.Unlock()
+		}
 	}
 	if changed {
 		j.structural.set()
@@ -443,7 +514,7 @@ func (j *NodeTrafficSyncJob) syncOne(mgr *runtime.Manager, n *model.Node, doIpSy
 		active = append(active, emails...)
 	}
 
-	if !doIpSync {
+	if !doIpSync || config.IsTrafficStatsDisabled() {
 		return active
 	}
 
